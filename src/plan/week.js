@@ -169,6 +169,19 @@ export function estimateCommuteLoad(profile, phase = null) {
   return Math.round(equivalentRunKm * 3 * mult);
 }
 
+// Durée approximative du vélotaff quotidien (A/R inclus) en minutes.
+// Sert à dimensionner les séances vélo : une séance injectée ne peut JAMAIS
+// être plus courte que ce que l'user fait déjà au quotidien, sinon l'algo
+// proposerait moins que le réel — absurde.
+export function estimateCommuteDurationMin(profile) {
+  const km = profile.commuteDistanceKm;
+  if (!km) return 0;
+  const speedByIntensity = { chill: 18, normal: 22, sporty: 28 };
+  const speedKmh =
+    speedByIntensity[profile.commuteIntensity] ?? speedByIntensity.normal;
+  return Math.round((km * 2 * 60) / speedKmh);
+}
+
 // --- Intensité de la charge vélotaff quotidienne (A/R inclus) ---
 // On classe le vélotaff du jour sur une échelle "light / moderate / heavy".
 // light     : charge négligeable, aucune adaptation
@@ -405,28 +418,36 @@ export function generateWeek({
   const bikeInject = crossCapExceeded
     ? null
     : shouldInjectBikeSession({ profile, phase, commuteClass });
+
+  // Règle : on n'injecte JAMAIS un bike sur un jour de vélotaff.
+  // Raison : l'user fait déjà un trajet A/R ce jour, ajouter une séance
+  // vélo en plus n'a pas de sens (ou alors il faudrait la prolonger
+  // au-delà du vélotaff, cas géré séparément).
   if (bikeInject) {
     if (bikeInject.action === "replace_easy") {
-      // Remplace le dernier easy placé (= le moins "pivot") par le vélo
-      const easyPlacements = Object.entries(placements).filter(
-        ([, p]) => p.kind === "easy"
+      // On cherche un easy placé sur un jour SANS vélotaff
+      const easyCandidates = Object.entries(placements).filter(
+        ([d, p]) => p.kind === "easy" && !commute.has(d)
       );
-      if (easyPlacements.length > 0) {
-        const [dayToReplace] = easyPlacements[easyPlacements.length - 1];
+      if (easyCandidates.length > 0) {
+        const [dayToReplace] = easyCandidates[easyCandidates.length - 1];
         placements[dayToReplace] = {
           kind: "cross",
           family: bikeInject.family,
           _forcedTemplateId: bikeInject.templateId,
         };
       }
+      // Si aucun easy libre de vélotaff → on skip (le vélotaff couvre déjà
+      // la charge aérobie croisée de la semaine)
     } else if (bikeInject.action === "add_after_long" && longRunDay) {
-      // Ajoute le lendemain de la SL si libre
       const idx = DAYS_ORDER.indexOf(longRunDay);
       const nextDay = DAYS_ORDER[(idx + 1) % 7];
+      const nextIsCommute = commute.has(nextDay);
       if (
         available.includes(nextDay) &&
         !placements[nextDay] &&
-        !heavyCommuteDays.has(nextDay)
+        !heavyCommuteDays.has(nextDay) &&
+        !nextIsCommute // pas d'injection si vélotaff ce jour (le vélotaff EST la récup active)
       ) {
         placements[nextDay] = {
           kind: "cross",
@@ -510,6 +531,15 @@ export function generateWeek({
     if (isCommuteDay && commuteClass.level === "moderate") {
       maxMin = Math.round(maxMin * 0.6);
     }
+
+    // Ceinture + bretelles : si c'est une séance bike placée sur un jour de
+    // vélotaff (exceptionnel grâce aux filtres), on garantit que la durée
+    // ≥ durée vélotaff A/R — sinon on proposerait moins que ce que l'user
+    // fait déjà, ce qui serait absurde.
+    let minMin = null;
+    if (p.family === "bike" && isCommuteDay) {
+      minMin = estimateCommuteDurationMin(profile);
+    }
     const session = generateSessionFromTemplate({
       template,
       profile,
@@ -519,6 +549,7 @@ export function generateWeek({
         day: d,
         phase,
         maxDurationMin: maxMin,
+        minDurationMin: minMin,
       },
     });
     days[d] = {

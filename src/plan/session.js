@@ -580,6 +580,18 @@ function resolveTemplateParams(paramSpecs, profile, context, template) {
       if (out[key] != null) out[key] = Math.min(out[key], maxBody);
     }
   }
+
+  // Plancher de durée : si le contexte fournit un minDurationMin (ex:
+  // séance vélo placée sur un jour de vélotaff où l'user fait déjà X min),
+  // on garantit que la durée totale ≥ minDurationMin. On ajuste durationMin
+  // du corps principal en conséquence.
+  if (context?.minDurationMin && template?.blockSpecs) {
+    const margin = staticMarginFromBlockSpecs(template.blockSpecs);
+    const minBody = Math.max(10, context.minDurationMin - margin);
+    if (out.durationMin != null && out.durationMin < minBody) {
+      out.durationMin = minBody;
+    }
+  }
   // Le template peut lire des éléments de contexte
   out.__context = context;
   return out;
