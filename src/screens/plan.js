@@ -692,13 +692,16 @@ function attachListeners(root, ctx) {
         map.scrollWheelZoom.enable();
         map.doubleClickZoom.enable();
 
-        // Affiche les stats
+        // Affiche les stats + flag "approximatif" si la tolérance n'est pas atteinte
         statsEl.hidden = false;
+        const targetKm = geojson._targetKm;
+        const approximate = geojson._approximate;
         statsEl.innerHTML = `
-          <div><strong>${stats.distanceKm}</strong><span>km</span></div>
+          <div><strong>${stats.distanceKm}</strong><span>km ${targetKm ? `/ ~${targetKm} cible` : ""}</span></div>
           <div><strong>+${stats.ascent}</strong><span>m D+</span></div>
           <div><strong>−${stats.descent}</strong><span>m D−</span></div>
           <div><strong>${stats.durationMin}</strong><span>min est.</span></div>
+          ${approximate ? `<div class="route-approximate" style="grid-column:1/-1">⚠️ Distance approximative, essaie une autre variante.</div>` : ""}
         `;
 
         // Remplace le bouton principal par "Variante"

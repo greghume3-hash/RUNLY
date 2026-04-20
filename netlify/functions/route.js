@@ -84,7 +84,9 @@ export async function handler(event) {
     options: {
       round_trip: {
         length: Math.round(distanceKm * 1000), // mètres
-        points: 5, // nb de "waypoints" aléatoires → plus = boucle plus sinueuse
+        // 3 waypoints = boucle plus serrée, distance plus proche de la cible.
+        // (5 = boucle sinueuse mais distance souvent surestimée)
+        points: 3,
         seed: typeof seed === "number" ? seed : Math.floor(Math.random() * 1e6),
       },
     },
