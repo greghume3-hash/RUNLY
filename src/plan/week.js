@@ -83,17 +83,35 @@ function pickEasyFamily(slotIndex) {
   return rotation[slotIndex % rotation.length];
 }
 
+// --- Multiplicateur de charge selon l'intensité perçue du vélotaff ---
+// chill  : e-bike, trajet cool → coefficient 0.7
+// normal : vélo musculaire sans se presser → 1.0 (défaut)
+// sporty : vite, sac lourd, relief → 1.4
+const INTENSITY_MULT = { chill: 0.7, normal: 1.0, sporty: 1.4 };
+
+function intensityMultiplier(profile) {
+  return INTENSITY_MULT[profile.commuteIntensity] ?? 1.0;
+}
+
+// --- Réduction en phase d'affûtage ---
+// En taper, on préserve les jambes : l'impact du vélotaff est divisé par 2
+// (même trajet, on demande juste à l'utilisateur de lever un peu le pied).
+function taperReduction(phase) {
+  return phase === "taper" ? 0.5 : 1.0;
+}
+
 // --- Charge de vélotaff estimée (en points de "load" équivalents) ---
 // Calcule une charge d'équivalence course pour un trajet vélotaff A/R.
 // Règle empirique : 1 km vélo facile ≈ 0.3 km course en charge,
 // + pénalité dénivelé (chaque 100m D+ ≈ 1 km course équivalent).
-export function estimateCommuteLoad(profile) {
+// Pondéré par l'intensité et la phase.
+export function estimateCommuteLoad(profile, phase = null) {
   const km = profile.commuteDistanceKm;
   if (!km) return 0;
-  const elev = profile.commuteElevationM ?? km * 10; // fallback 10 m/km
+  const elev = profile.commuteElevationM ?? km * 10;
   const equivalentRunKm = 2 * (km * 0.3 + elev / 100);
-  // load ≈ 3 × km équivalent course (en easy)
-  return Math.round(equivalentRunKm * 3);
+  const mult = intensityMultiplier(profile) * taperReduction(phase);
+  return Math.round(equivalentRunKm * 3 * mult);
 }
 
 // --- Intensité de la charge vélotaff quotidienne (A/R inclus) ---
@@ -101,17 +119,25 @@ export function estimateCommuteLoad(profile) {
 // light     : charge négligeable, aucune adaptation
 // moderate  : footing à raccourcir (~50-70% de la durée normale)
 // heavy     : remplace la course par un repos actif (vélotaff = séance)
-export function classifyDailyCommute(profile) {
+// Le multiplicateur d'intensité peut faire basculer d'un niveau à l'autre
+// (ex: trajet 5 km sporty → moderate au lieu de light).
+export function classifyDailyCommute(profile, phase = null) {
   const km = profile.commuteDistanceKm;
-  if (!km) return { level: "none", equivKm: 0 };
+  if (!km) return { level: "none", equivKm: 0, mult: 1 };
   const elev = profile.commuteElevationM ?? km * 10;
-  // Distance équivalente course pour 1 aller-retour
-  const equivKm = 2 * (km * 0.3 + elev / 100);
+  const baseEquivKm = 2 * (km * 0.3 + elev / 100);
+  const mult = intensityMultiplier(profile) * taperReduction(phase);
+  const equivKm = baseEquivKm * mult;
   let level;
-  if (equivKm < 6) level = "light";        // < 6 km équiv → pas d'impact
-  else if (equivKm < 14) level = "moderate"; // 6-14 → footing raccourci
-  else level = "heavy";                     // > 14 → pas de course
-  return { level, equivKm: Math.round(equivKm * 10) / 10 };
+  if (equivKm < 6) level = "light";
+  else if (equivKm < 14) level = "moderate";
+  else level = "heavy";
+  return {
+    level,
+    equivKm: Math.round(equivKm * 10) / 10,
+    mult: Math.round(mult * 100) / 100,
+    intensity: profile.commuteIntensity ?? "normal",
+  };
 }
 
 // --- Plafonne la durée d'une séance au maxSession du jour -----------
@@ -215,11 +241,15 @@ export function generateWeek({
   const recipe = RECIPES[sessionsPerWeek] ?? RECIPES[3];
 
   // --- Classification automatique de la charge vélotaff ---
-  // L'algo décide seul :
-  //   - light  : pas d'impact, on met ce qu'on veut
-  //   - moderate : pas de qualité + footing raccourci (60 %)
-  //   - heavy  : pas de course du tout, repos actif
-  const commuteClass = classifyDailyCommute(profile);
+  // L'algo décide seul selon :
+  //   - distance + dénivelé du trajet
+  //   - intensité déclarée (chill/normal/sporty)
+  //   - phase du plan (taper réduit l'impact)
+  //
+  //   - light    : pas d'impact, footing normal
+  //   - moderate : footing raccourci (60 %)
+  //   - heavy    : pas de course, repos actif
+  const commuteClass = classifyDailyCommute(profile, phase);
   // Jours de vélotaff "heavy" : exclus du placement course
   const heavyCommuteDays = new Set(
     commuteClass.level === "heavy" ? [...commute] : []
@@ -389,7 +419,7 @@ export function generateWeek({
   );
 
   // Charge vélotaff : nb de jours × charge unitaire estimée
-  const commuteLoadPerDay = estimateCommuteLoad(profile);
+  const commuteLoadPerDay = estimateCommuteLoad(profile, phase);
   const commuteLoad = commuteLoadPerDay * commute.size;
 
   return {
