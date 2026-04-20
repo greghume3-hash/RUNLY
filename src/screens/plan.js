@@ -860,11 +860,21 @@ function attachListeners(root, ctx) {
         if (shareBtn && navigator.canShare) shareBtn.hidden = false;
       } catch (err) {
         errorEl.hidden = false;
+        const isLocalDev =
+          location.hostname === "localhost" ||
+          location.hostname === "127.0.0.1";
+        const is404 = /^http_404/.test(err.message || "");
         errorEl.textContent =
           err.message === "missing_api_key"
             ? "Service temporairement indisponible — configuration en cours."
             : err.message === "no_location"
             ? "Localisation manquante."
+            : err.message === "no_route_for_session_type"
+            ? "Pas de parcours pour ce type de séance."
+            : is404 && isLocalDev
+            ? "ℹ️ API parcours indisponible en local (Vite dev ne sert pas les Netlify Functions). Teste sur le site déployé."
+            : is404
+            ? "Service parcours indisponible — vérifie que le dernier déploiement est bien publié."
             : `Erreur : ${err.message}`;
         if (lbl) lbl.textContent = "Suggérer un parcours";
       } finally {
