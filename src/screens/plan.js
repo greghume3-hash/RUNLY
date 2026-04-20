@@ -710,7 +710,7 @@ function attachListeners(root, ctx) {
             ? "Service temporairement indisponible — configuration en cours."
             : err.message === "no_location"
             ? "Localisation manquante."
-            : "Impossible de générer un parcours ici (zone peu couverte par OSM ?). Réessaie plus tard.";
+            : `Erreur : ${err.message}`;
         if (lbl) lbl.textContent = "Suggérer un parcours";
       } finally {
         suggestBtn.disabled = false;

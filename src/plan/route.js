@@ -77,7 +77,9 @@ export async function fetchRoute({ session, userProfile, seed }) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `http_${res.status}`);
+    // On remonte le détail de l'erreur pour debug (visible côté UI)
+    const detail = err.detail ? ` — ${String(err.detail).slice(0, 200)}` : "";
+    throw new Error(`${err.error || `http_${res.status}`}${detail}`);
   }
   return res.json();
 }

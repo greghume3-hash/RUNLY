@@ -17,7 +17,10 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(taskkill //F //IM node.exe)",
       "WebFetch(domain:cheery-tapioca-4330b7.netlify.app)",
-      "WebFetch(domain:fluffy-marigold-b3c06e.netlify.app)"
+      "WebFetch(domain:fluffy-marigold-b3c06e.netlify.app)",
+      "Bash(curl -s -X POST https://fluffy-marigold-b3c06e.netlify.app/api/route -H \"Content-Type: application/json\" -d '{\"lat\":45.7578,\"lng\":4.8320,\"distanceKm\":5,\"profile\":\"foot-walking\"}' -o /tmp/route-response.json -w \"HTTP %{http_code}\\\\nContent-Length: %{size_download} bytes\\\\n\")",
+      "Bash(curl -sv -X POST https://fluffy-marigold-b3c06e.netlify.app/api/route -H \"Content-Type: application/json\" -d '{\"lat\":45.7578,\"lng\":4.8320,\"distanceKm\":5}')",
+      "Bash(node test-api.mjs)"
     ]
   }
 }
