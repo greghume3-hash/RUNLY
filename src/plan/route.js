@@ -205,8 +205,13 @@ export async function fetchRoute({ session, userProfile, seed }) {
     userProfile
   );
 
+  // Pour les séances de côtes, on a besoin d'une côte identifiée dans le
+  // parcours. On scanne chaque polyline et on retry si aucune côte valable.
+  const needsHillSegment = session.family === "hills";
+
   let bestGeojson = null;
   let bestScore = Infinity;
+  let bestHill = null; // côte trouvée dans le meilleur parcours
   const attempts = [];
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -249,6 +254,13 @@ export async function fetchRoute({ session, userProfile, seed }) {
     const distanceOk = actualKm >= minKm && actualKm <= maxKm;
     const elevOk = elevPerKm >= elevPerKmMin && elevPerKm <= elevPerKmMax;
 
+    // Si c'est une séance de côtes, on cherche aussi UN bon segment montée
+    let hill = null;
+    if (needsHillSegment) {
+      hill = findBestHillSegment(coords);
+    }
+    const hillOk = !needsHillSegment || hill !== null;
+
     // Score combiné : plus c'est bas, meilleur c'est
     const distGap = Math.abs(actualKm - targetKm) / targetKm;
     const elevGap =
@@ -257,12 +269,14 @@ export async function fetchRoute({ session, userProfile, seed }) {
         : elevPerKm < elevPerKmMin
         ? (elevPerKmMin - elevPerKm) / Math.max(5, elevPerKmMin)
         : 0;
-    const score = distGap + elevGap * 1.5; // on pondère légèrement le dénivelé
+    // Pour hills : pénalité forte si pas de côte trouvée
+    const hillPenalty = needsHillSegment && !hill ? 5 : 0;
+    const score = distGap + elevGap * 1.5 + hillPenalty;
 
-    attempts.push({ seed: attemptSeed, actualKm, elevPerKm, score });
+    attempts.push({ seed: attemptSeed, actualKm, elevPerKm, hasHill: !!hill, score });
 
-    // Les 2 tolérances sont respectées → on s'arrête
-    if (distanceOk && elevOk) {
+    // Tous les critères sont respectés → on s'arrête
+    if (distanceOk && elevOk && hillOk) {
       return {
         ...geojson,
         _targetKm: targetKm,
@@ -271,12 +285,14 @@ export async function fetchRoute({ session, userProfile, seed }) {
         _elevTarget: `${Math.round(elevPerKmMin)}-${Math.round(elevPerKmMax)} m/km`,
         _approximate: false,
         _attempts: attempts.length,
+        _hillSegment: hill, // { startIdx, endIdx, lengthM, gradient, ascent } ou null
       };
     }
 
     if (score < bestScore) {
       bestScore = score;
       bestGeojson = geojson;
+      bestHill = hill;
     }
   }
 
@@ -294,10 +310,102 @@ export async function fetchRoute({ session, userProfile, seed }) {
     _targetKm: targetKm,
     _actualKm: bestDistance / 1000,
     _elevPerKm: Math.round(bestAscent / (bestDistance / 1000)),
-    _elevTarget: `${elevPerKmMin}-${elevPerKmMax} m/km`,
+    _elevTarget: `${Math.round(elevPerKmMin)}-${Math.round(elevPerKmMax)} m/km`,
     _approximate: true,
     _attempts: attempts.length,
+    _hillSegment: bestHill,
   };
+}
+
+// ---------------------------------------------------------------------
+// Analyse altimétrique : trouver le meilleur "segment-côte" d'une polyline
+// ---------------------------------------------------------------------
+// Parcourt la polyline en fenêtre glissante et identifie le tronçon dont
+// la longueur + pente correspondent le mieux à un critère "côte".
+// Utilisé pour les séances de côtes où l'utilisateur a besoin d'une
+// montée précise à répéter.
+//
+// Coords : tableau de [lng, lat, ele]. ele en mètres.
+// Critères par défaut : longueur 80-150 m, pente 5-8 %.
+// Retourne { startIdx, endIdx, lengthM, gradient, ascent, score } ou null.
+
+// Distance Haversine en mètres entre deux points [lng, lat]
+function haversineM(a, b) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(a[0] - b[0]) * -1;
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export function findBestHillSegment(
+  coords,
+  { minLengthM = 80, maxLengthM = 150, minGrade = 5, maxGrade = 8 } = {}
+) {
+  if (!coords || coords.length < 5) return null;
+
+  // Pré-calcul des distances cumulées le long de la polyline
+  const cum = [0];
+  for (let i = 1; i < coords.length; i++) {
+    cum.push(cum[i - 1] + haversineM(coords[i - 1], coords[i]));
+  }
+
+  let best = null;
+  let bestScore = Infinity;
+
+  // Fenêtre glissante : pour chaque point de départ, trouve tous les points
+  // d'arrivée qui donnent une longueur dans [minLengthM, maxLengthM].
+  for (let i = 0; i < coords.length - 1; i++) {
+    for (let j = i + 1; j < coords.length; j++) {
+      const lengthM = cum[j] - cum[i];
+      if (lengthM < minLengthM) continue;
+      if (lengthM > maxLengthM) break; // on a dépassé la fenêtre, on arrête
+
+      // Calcul du dénivelé positif brut du tronçon (ascent seulement)
+      let ascent = 0;
+      for (let k = i + 1; k <= j; k++) {
+        const diff = (coords[k][2] ?? 0) - (coords[k - 1][2] ?? 0);
+        if (diff > 0) ascent += diff;
+      }
+      const gradient = (ascent / lengthM) * 100;
+
+      // Ne garder que les montées continues (sans trop de plat intercalé)
+      // → au moins 60 % du dénivelé brut = ascent net
+      const netAscent = (coords[j][2] ?? 0) - (coords[i][2] ?? 0);
+      if (netAscent < 0) continue; // le tronçon descend globalement
+      if (netAscent < ascent * 0.6) continue; // trop de plateau/descente intermédiaire
+
+      // Score : distance à la fourchette idéale
+      let score = 0;
+      if (gradient < minGrade) score = (minGrade - gradient) * 2;
+      else if (gradient > maxGrade) score = (gradient - maxGrade) * 1.5;
+      // Bonus pour les longueurs proches du milieu de fourchette
+      const midLen = (minLengthM + maxLengthM) / 2;
+      score += Math.abs(lengthM - midLen) / 100;
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = {
+          startIdx: i,
+          endIdx: j,
+          lengthM: Math.round(lengthM),
+          gradient: Math.round(gradient * 10) / 10,
+          ascent: Math.round(ascent),
+          score,
+        };
+      }
+    }
+  }
+
+  // On ne retourne que si on a trouvé quelque chose de correct
+  // (score < 3 = assez proche des critères)
+  if (!best || best.score > 3) return null;
+  return best;
 }
 
 // ---------------------------------------------------------------------

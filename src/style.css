@@ -1005,6 +1005,40 @@ body {
   border-top: 1px dashed var(--color-border);
 }
 
+.hill-info {
+  padding: 8px 12px;
+  background: #fef2f2;
+  color: #7f1d1d;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 12.5px;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.hill-info strong {
+  color: #991b1b;
+}
+
+/* Marqueur Leaflet personnalisé pour la côte */
+.hill-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.hill-marker__pin {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: #fff;
+  border: 2px solid #dc2626;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
+}
+
 /* --- Note post-séance --- */
 .note-block {
   margin: 16px 0;

@@ -691,16 +691,46 @@ function attachListeners(root, ctx) {
         mapEl2._lastGeojson = geojson;
         mapEl2._lastStats = stats;
 
-        // Supprime l'ancienne polyline si présente
+        // Supprime l'ancienne polyline + segment côte si présents
         if (currentPolyline) map.removeLayer(currentPolyline);
+        if (map._hillLayer) map.removeLayer(map._hillLayer);
+        if (map._hillMarker) map.removeLayer(map._hillMarker);
 
-        // Trace la nouvelle polyline
+        // Trace la polyline principale en bleu
         const latlngs = stats.coords.map((c) => [c[1], c[0]]);
         currentPolyline = L.polyline(latlngs, {
           color: "#2563eb",
           weight: 4,
           opacity: 0.9,
         }).addTo(map);
+
+        // Si séance de côtes et segment trouvé → trace en rouge par-dessus
+        const hill = geojson._hillSegment;
+        if (hill) {
+          const hillLatLngs = stats.coords
+            .slice(hill.startIdx, hill.endIdx + 1)
+            .map((c) => [c[1], c[0]]);
+          map._hillLayer = L.polyline(hillLatLngs, {
+            color: "#dc2626",
+            weight: 6,
+            opacity: 0.95,
+          }).addTo(map);
+          // Marqueur au début de la côte
+          const startCoord = hillLatLngs[0];
+          map._hillMarker = L.marker(startCoord, {
+            icon: L.divIcon({
+              className: "hill-marker",
+              html: '<div class="hill-marker__pin">⛰️</div>',
+              iconSize: [32, 32],
+              iconAnchor: [16, 16],
+            }),
+          })
+            .addTo(map)
+            .bindPopup(
+              `<strong>Ta côte</strong><br>${hill.lengthM} m · ${hill.gradient} % de pente<br><em>Fais tes répétitions ici</em>`
+            );
+        }
+
         map.fitBounds(currentPolyline.getBounds(), { padding: [10, 10] });
 
         // Réactive drag/zoom pour explorer le parcours
@@ -714,12 +744,15 @@ function attachListeners(root, ctx) {
         const approximate = geojson._approximate;
         const elevPerKm = geojson._elevPerKm ?? 0;
         const elevTarget = geojson._elevTarget;
+        const hillInfo = geojson._hillSegment;
         statsEl.innerHTML = `
           <div><strong>${stats.distanceKm}</strong><span>km ${targetKm ? `/ ~${targetKm} cible` : ""}</span></div>
           <div><strong>+${stats.ascent}</strong><span>m D+</span></div>
           <div><strong>−${stats.descent}</strong><span>m D−</span></div>
           <div><strong>${stats.durationMin}</strong><span>min est.</span></div>
-          ${approximate ? `<div class="route-approximate" style="grid-column:1/-1">⚠️ Parcours approximatif (${elevPerKm} m/km, cible ${elevTarget}). Essaie une autre variante pour un meilleur match.</div>` : ""}
+          ${hillInfo ? `<div class="hill-info" style="grid-column:1/-1">⛰️ <strong>Côte identifiée</strong> : ${hillInfo.lengthM} m à ${hillInfo.gradient} % (tracé rouge). Fais tes répétitions dessus.</div>` : ""}
+          ${dayData.session.family === "hills" && !hillInfo ? `<div class="route-approximate" style="grid-column:1/-1">⚠️ Aucune côte idéale (80-150 m, 5-8 %) trouvée sur ce parcours. Essaie une autre variante, ou choisis une montée de ton choix sur le tracé.</div>` : ""}
+          ${approximate && !hillInfo ? `<div class="route-approximate" style="grid-column:1/-1">⚠️ Parcours approximatif (${elevPerKm} m/km, cible ${elevTarget}). Essaie une autre variante pour un meilleur match.</div>` : ""}
         `;
 
         // Remplace le bouton principal par "Variante" + affiche export
