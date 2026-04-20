@@ -5,23 +5,65 @@
 // ---------------------------------------------------------------------
 // Choix du profil ORS selon la séance
 // ---------------------------------------------------------------------
-// foot-walking → route, bitume, trottoirs (footings urbains)
-// foot-hiking  → chemins, sentiers (trails)
-// cycling-*    → pour les séances de cross-training vélo
 function pickOrsProfile(session, userProfile) {
   if (session.type === "cross") {
-    // On ne suggère pas de parcours pour cross sauf si c'est vélo
     if (session.family === "cross" && session.blocks[0]?.label === "Vélo") {
       return "cycling-regular";
     }
     return null;
   }
-
-  // Objectif trail OU terrain préféré = chemins
   const obj = userProfile.objectiveCategory;
   const terrain = userProfile.preferredTerrain;
   if (obj === "trail" || terrain === "path") return "foot-hiking";
   return "foot-walking";
+}
+
+// ---------------------------------------------------------------------
+// Préférence ORS + cibles de dénivelé par type de séance
+// ---------------------------------------------------------------------
+// La préférence "shortest" favorise les parcours plats (chemin le plus court
+// donc moins de détours = souvent moins de dénivelé).
+// La cible `elevPerKmMax` (en m/km) sert à évaluer la qualité du parcours :
+// on refait un appel s'il dépasse ce seuil (dans la mesure des retries).
+function getRouteConstraints(session, userProfile) {
+  const type = session.type;
+  const family = session.family;
+  const obj = userProfile.objectiveCategory;
+  const targetEleM = userProfile.targetElevationM ?? 0;
+  const targetDistKm = userProfile.objectiveDistanceKm ?? 0;
+
+  // Côtes = on veut du dénivelé
+  if (family === "hills") {
+    return { preference: "recommended", elevPerKmMin: 25, elevPerKmMax: 50 };
+  }
+
+  // Trail : D+ cible proportionnel au D+ de la course
+  if (obj === "trail" && targetDistKm > 0 && targetEleM > 0) {
+    const elevPerKm = targetEleM / targetDistKm;
+    return {
+      preference: "recommended",
+      elevPerKmMin: Math.max(10, elevPerKm * 0.6),
+      elevPerKmMax: elevPerKm * 1.4,
+    };
+  }
+
+  // Footings easy / récup / VMA / seuil : on veut du plat
+  if (
+    type === "easy" ||
+    type === "recovery" ||
+    type === "intervals" ||
+    type === "tempo"
+  ) {
+    return { preference: "shortest", elevPerKmMin: 0, elevPerKmMax: 12 };
+  }
+
+  // Long run route : dénivelé modéré
+  if (type === "long") {
+    return { preference: "recommended", elevPerKmMin: 0, elevPerKmMax: 18 };
+  }
+
+  // Défaut
+  return { preference: "recommended", elevPerKmMin: 0, elevPerKmMax: 15 };
 }
 
 // ---------------------------------------------------------------------
@@ -132,17 +174,17 @@ function averageFromString(s) {
 // ---------------------------------------------------------------------
 // Appel principal
 // ---------------------------------------------------------------------
-// Tolérance de ±10 % sur la distance. On retry jusqu'à 3 fois avec
-// des seeds différents si ORS renvoie hors tolérance. Après 3 essais,
-// on garde le meilleur et on flag `approximate: true`.
+// Tolérance ±10 % sur la distance + cible de D+ (m/km) selon la séance.
+// On essaie jusqu'à 4 fois avec des seeds différents. Chaque parcours est
+// scoré en combinant (écart distance + écart D+). On retourne :
+//   - le 1er parcours qui rentre dans les 2 tolérances, OU
+//   - celui avec le meilleur score sinon (flag `_approximate`).
 const TOLERANCE = 0.10;
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = 4;
 
 export async function fetchRoute({ session, userProfile, seed }) {
   const profile = pickOrsProfile(session, userProfile);
-  if (!profile) {
-    throw new Error("no_route_for_session_type");
-  }
+  if (!profile) throw new Error("no_route_for_session_type");
   if (userProfile.locationLat == null || userProfile.locationLng == null) {
     throw new Error("no_location");
   }
@@ -151,12 +193,16 @@ export async function fetchRoute({ session, userProfile, seed }) {
   const minKm = targetKm * (1 - TOLERANCE);
   const maxKm = targetKm * (1 + TOLERANCE);
 
-  let best = null;
-  let bestGap = Infinity;
+  const { preference, elevPerKmMin, elevPerKmMax } = getRouteConstraints(
+    session,
+    userProfile
+  );
+
+  let bestGeojson = null;
+  let bestScore = Infinity;
   const attempts = [];
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    // Seed différent à chaque essai (déterministe si caller fournit un seed)
     const attemptSeed =
       seed != null ? seed + attempt * 1000 : Math.floor(Math.random() * 1e6);
 
@@ -168,6 +214,7 @@ export async function fetchRoute({ session, userProfile, seed }) {
         lng: userProfile.locationLng,
         distanceKm: targetKm,
         profile,
+        preference,
         seed: attemptSeed,
       }),
     });
@@ -175,40 +222,72 @@ export async function fetchRoute({ session, userProfile, seed }) {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       const detail = err.detail ? ` — ${String(err.detail).slice(0, 200)}` : "";
-      // Erreur API : inutile de retry sauf si c'est un souci réseau transitoire
       throw new Error(`${err.error || `http_${res.status}`}${detail}`);
     }
 
     const geojson = await res.json();
-    const distanceM = geojson?.features?.[0]?.properties?.summary?.distance ?? 0;
+    const feature = geojson?.features?.[0];
+    const distanceM = feature?.properties?.summary?.distance ?? 0;
     const actualKm = distanceM / 1000;
-    const gap = Math.abs(actualKm - targetKm);
-    attempts.push({ seed: attemptSeed, actualKm, gap });
 
-    // Dans la tolérance → on s'arrête
-    if (actualKm >= minKm && actualKm <= maxKm) {
+    // Calcul du D+ depuis les coordonnées
+    const coords = feature?.geometry?.coordinates ?? [];
+    let totalAscent = 0;
+    for (let i = 1; i < coords.length; i++) {
+      const d = (coords[i][2] ?? 0) - (coords[i - 1][2] ?? 0);
+      if (d > 0) totalAscent += d;
+    }
+    const elevPerKm = actualKm > 0 ? totalAscent / actualKm : 0;
+
+    const distanceOk = actualKm >= minKm && actualKm <= maxKm;
+    const elevOk = elevPerKm >= elevPerKmMin && elevPerKm <= elevPerKmMax;
+
+    // Score combiné : plus c'est bas, meilleur c'est
+    const distGap = Math.abs(actualKm - targetKm) / targetKm;
+    const elevGap =
+      elevPerKm > elevPerKmMax
+        ? (elevPerKm - elevPerKmMax) / Math.max(5, elevPerKmMax)
+        : elevPerKm < elevPerKmMin
+        ? (elevPerKmMin - elevPerKm) / Math.max(5, elevPerKmMin)
+        : 0;
+    const score = distGap + elevGap * 1.5; // on pondère légèrement le dénivelé
+
+    attempts.push({ seed: attemptSeed, actualKm, elevPerKm, score });
+
+    // Les 2 tolérances sont respectées → on s'arrête
+    if (distanceOk && elevOk) {
       return {
         ...geojson,
         _targetKm: targetKm,
         _actualKm: actualKm,
+        _elevPerKm: Math.round(elevPerKm),
+        _elevTarget: `${elevPerKmMin}-${elevPerKmMax} m/km`,
         _approximate: false,
         _attempts: attempts.length,
       };
     }
 
-    // Sinon on garde le meilleur
-    if (gap < bestGap) {
-      bestGap = gap;
-      best = geojson;
+    if (score < bestScore) {
+      bestScore = score;
+      bestGeojson = geojson;
     }
   }
 
-  // Les 3 tentatives ont échoué → on retourne le meilleur avec un flag
-  const bestDistance = best?.features?.[0]?.properties?.summary?.distance ?? 0;
+  // Aucun parcours ne rentre dans les 2 tolérances → on retourne le meilleur
+  const feat = bestGeojson?.features?.[0];
+  const bestDistance = feat?.properties?.summary?.distance ?? 0;
+  const bestCoords = feat?.geometry?.coordinates ?? [];
+  let bestAscent = 0;
+  for (let i = 1; i < bestCoords.length; i++) {
+    const d = (bestCoords[i][2] ?? 0) - (bestCoords[i - 1][2] ?? 0);
+    if (d > 0) bestAscent += d;
+  }
   return {
-    ...best,
+    ...bestGeojson,
     _targetKm: targetKm,
     _actualKm: bestDistance / 1000,
+    _elevPerKm: Math.round(bestAscent / (bestDistance / 1000)),
+    _elevTarget: `${elevPerKmMin}-${elevPerKmMax} m/km`,
     _approximate: true,
     _attempts: attempts.length,
   };

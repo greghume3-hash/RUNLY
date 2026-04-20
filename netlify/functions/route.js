@@ -43,6 +43,8 @@ export async function handler(event) {
     distanceKm,
     profile = "foot-walking",
     seed,
+    // Nouveau : préférence de trajet (shortest = plus plat en général)
+    preference = "recommended",
   } = payload;
 
   // Validation basique
@@ -81,11 +83,11 @@ export async function handler(event) {
   const orsUrl = `https://api.openrouteservice.org/v2/directions/${profile}/geojson`;
   const body = {
     coordinates: [[lng, lat]],
+    preference, // "recommended" | "shortest" | "fastest"
     options: {
       round_trip: {
         length: Math.round(distanceKm * 1000), // mètres
         // 3 waypoints = boucle plus serrée, distance plus proche de la cible.
-        // (5 = boucle sinueuse mais distance souvent surestimée)
         points: 3,
         seed: typeof seed === "number" ? seed : Math.floor(Math.random() * 1e6),
       },

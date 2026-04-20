@@ -712,12 +712,14 @@ function attachListeners(root, ctx) {
         statsEl.hidden = false;
         const targetKm = geojson._targetKm;
         const approximate = geojson._approximate;
+        const elevPerKm = geojson._elevPerKm ?? 0;
+        const elevTarget = geojson._elevTarget;
         statsEl.innerHTML = `
           <div><strong>${stats.distanceKm}</strong><span>km ${targetKm ? `/ ~${targetKm} cible` : ""}</span></div>
           <div><strong>+${stats.ascent}</strong><span>m D+</span></div>
           <div><strong>−${stats.descent}</strong><span>m D−</span></div>
           <div><strong>${stats.durationMin}</strong><span>min est.</span></div>
-          ${approximate ? `<div class="route-approximate" style="grid-column:1/-1">⚠️ Distance approximative, essaie une autre variante.</div>` : ""}
+          ${approximate ? `<div class="route-approximate" style="grid-column:1/-1">⚠️ Parcours approximatif (${elevPerKm} m/km, cible ${elevTarget}). Essaie une autre variante pour un meilleur match.</div>` : ""}
         `;
 
         // Remplace le bouton principal par "Variante" + affiche export
