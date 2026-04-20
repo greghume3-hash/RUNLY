@@ -53,6 +53,11 @@ import {
   bikeRecoveryTemplate,
 } from "./bike.js";
 
+import {
+  brickRecoveryTemplate,
+  brickThresholdIndoorTemplate,
+} from "./brick.js";
+
 import { walkRun60_120Template } from "./walk_run.js";
 
 export const ALL_TEMPLATES = [
@@ -92,6 +97,9 @@ export const ALL_TEMPLATES = [
   bikeEnduranceTemplate,
   bikeThresholdTemplate,
   bikeRecoveryTemplate,
+  // hybrides running + HT / tapis (Niveau 2+ — brick sessions)
+  brickRecoveryTemplate,
+  brickThresholdIndoorTemplate,
   // walk-run
   walkRun60_120Template,
 ];

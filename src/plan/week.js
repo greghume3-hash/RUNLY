@@ -125,12 +125,19 @@ function shouldInjectBikeSession({ profile, phase, commuteClass }) {
     };
   }
 
-  // Phase développement : vélo récup le lendemain de la SL (J+1)
+  // Phase développement : récup active le lendemain de la SL.
+  // Si l'user a home_trainer ET tapis/salle → brick (footing easy + HT),
+  // sinon simple bike-recovery.
   if (phase === "development") {
+    const hasTreadmillOrGym =
+      eq.includes("treadmill") || eq.includes("gym_access");
+    const useBrick =
+      (eq.includes("home_trainer") || eq.includes("indoor_bike")) &&
+      hasTreadmillOrGym;
     return {
-      action: "add_after_long", // ajoute le lendemain de la SL
-      family: "bike",
-      templateId: "bike-recovery",
+      action: "add_after_long",
+      family: useBrick ? "brick" : "bike",
+      templateId: useBrick ? "brick-recovery" : "bike-recovery",
     };
   }
 
@@ -382,6 +389,29 @@ export function generateWeek({
     };
   }
 
+  // Niveau 2 bis — Injection "add_after_long" (brick/bike-recovery post-SL)
+  // Doit venir AVANT le placement des easy, pour que le lendemain de la SL
+  // reste libre. Les autres types d'injection (replace_easy) viennent après.
+  const bikeInjectEarly =
+    shouldInjectBikeSession({ profile, phase, commuteClass });
+  if (bikeInjectEarly?.action === "add_after_long" && longRunDay) {
+    const idx = DAYS_ORDER.indexOf(longRunDay);
+    const nextDay = DAYS_ORDER[(idx + 1) % 7];
+    const nextIsCommute = commute.has(nextDay);
+    if (
+      available.includes(nextDay) &&
+      !placements[nextDay] &&
+      !heavyCommuteDays.has(nextDay) &&
+      !nextIsCommute
+    ) {
+      placements[nextDay] = {
+        kind: "cross",
+        family: bikeInjectEarly.family,
+        _forcedTemplateId: bikeInjectEarly.templateId,
+      };
+    }
+  }
+
   // 3) Séances "easy" + "recovery"
   const easySlots = effectiveRecipe.filter((s) => s.kind === "easy");
   const recoverySlots = effectiveRecipe.filter((s) => s.kind === "recovery");
@@ -419,42 +449,20 @@ export function generateWeek({
     ? null
     : shouldInjectBikeSession({ profile, phase, commuteClass });
 
-  // Règle : on n'injecte JAMAIS un bike sur un jour de vélotaff.
-  // Raison : l'user fait déjà un trajet A/R ce jour, ajouter une séance
-  // vélo en plus n'a pas de sens (ou alors il faudrait la prolonger
-  // au-delà du vélotaff, cas géré séparément).
-  if (bikeInject) {
-    if (bikeInject.action === "replace_easy") {
-      // On cherche un easy placé sur un jour SANS vélotaff
-      const easyCandidates = Object.entries(placements).filter(
-        ([d, p]) => p.kind === "easy" && !commute.has(d)
-      );
-      if (easyCandidates.length > 0) {
-        const [dayToReplace] = easyCandidates[easyCandidates.length - 1];
-        placements[dayToReplace] = {
-          kind: "cross",
-          family: bikeInject.family,
-          _forcedTemplateId: bikeInject.templateId,
-        };
-      }
-      // Si aucun easy libre de vélotaff → on skip (le vélotaff couvre déjà
-      // la charge aérobie croisée de la semaine)
-    } else if (bikeInject.action === "add_after_long" && longRunDay) {
-      const idx = DAYS_ORDER.indexOf(longRunDay);
-      const nextDay = DAYS_ORDER[(idx + 1) % 7];
-      const nextIsCommute = commute.has(nextDay);
-      if (
-        available.includes(nextDay) &&
-        !placements[nextDay] &&
-        !heavyCommuteDays.has(nextDay) &&
-        !nextIsCommute // pas d'injection si vélotaff ce jour (le vélotaff EST la récup active)
-      ) {
-        placements[nextDay] = {
-          kind: "cross",
-          family: bikeInject.family,
-          _forcedTemplateId: bikeInject.templateId,
-        };
-      }
+  // Règle : on n'injecte JAMAIS un bike/brick sur un jour de vélotaff.
+  // Le "add_after_long" a déjà été traité plus haut (avant les easy).
+  // Ici on gère uniquement "replace_easy" (reste du placement).
+  if (bikeInject && bikeInject.action === "replace_easy") {
+    const easyCandidates = Object.entries(placements).filter(
+      ([d, p]) => p.kind === "easy" && !commute.has(d)
+    );
+    if (easyCandidates.length > 0) {
+      const [dayToReplace] = easyCandidates[easyCandidates.length - 1];
+      placements[dayToReplace] = {
+        kind: "cross",
+        family: bikeInject.family,
+        _forcedTemplateId: bikeInject.templateId,
+      };
     }
   }
 
