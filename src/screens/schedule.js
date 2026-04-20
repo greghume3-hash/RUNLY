@@ -158,26 +158,12 @@ export function scheduleScreen(root) {
               />
               <p class="field__help">
                 Pas sûr·e ? Laisse vide — on estimera à 10 m/km.
+                <br>
+                Ton vélotaff sera automatiquement intégré dans la charge du plan :
+                les jours concernés seront adaptés (pas de séance intense, footing raccourci
+                ou remplacé par du repos actif selon la charge du trajet).
               </p>
             </label>
-
-            <fieldset class="field field--chips" id="commute-mode-field">
-              <legend class="field__label">Rôle du vélotaff dans ton plan</legend>
-              <div class="chip-group">
-                <label class="chip">
-                  <input type="radio" name="commuteMode" value="complement" />
-                  <span>En plus de ma course</span>
-                </label>
-                <label class="chip">
-                  <input type="radio" name="commuteMode" value="replace" />
-                  <span>Remplace la course ces jours-là</span>
-                </label>
-              </div>
-              <p class="field__help">
-                <strong>En plus</strong> : tu cours quand même (footing léger ces jours).
-                <strong>Remplace</strong> : le vélotaff EST ta séance de cross — pas de course ce jour.
-              </p>
-            </fieldset>
           </section>
 
           <p class="form__error" id="form-error" role="alert" hidden>
@@ -227,12 +213,6 @@ export function scheduleScreen(root) {
     form.commuteDistanceKm.value = profile.commuteDistanceKm;
   if (profile.commuteElevationM != null)
     form.commuteElevationM.value = profile.commuteElevationM;
-  // Default commuteMode = complement (si vélotaff renseigné mais jamais choisi)
-  const modeToSet = profile.commuteMode ?? "complement";
-  const modeRadio = form.querySelector(
-    `input[name="commuteMode"][value="${modeToSet}"]`
-  );
-  if (modeRadio) modeRadio.checked = true;
 
   // --- Logique "jour de sortie longue" ---
   // Les chips s'affichent seulement à partir des jours cochés ci-dessus.
@@ -344,7 +324,6 @@ export function scheduleScreen(root) {
     const commuteDays = data.getAll("commuteDays");
     const commuteDistanceKm = data.get("commuteDistanceKm");
     const commuteElevationM = data.get("commuteElevationM");
-    const commuteMode = data.get("commuteMode") || "complement";
 
     updateProfile({
       sessionsPerWeek: Number(sessionsPerWeek),
@@ -355,7 +334,6 @@ export function scheduleScreen(root) {
       commuteDays,
       commuteDistanceKm: commuteDistanceKm ? Number(commuteDistanceKm) : null,
       commuteElevationM: commuteElevationM ? Number(commuteElevationM) : null,
-      commuteMode,
     });
 
     console.log("[Runly] profil après étape 4 :", { ...profile });

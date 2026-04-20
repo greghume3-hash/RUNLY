@@ -96,6 +96,24 @@ export function estimateCommuteLoad(profile) {
   return Math.round(equivalentRunKm * 3);
 }
 
+// --- Intensité de la charge vélotaff quotidienne (A/R inclus) ---
+// On classe le vélotaff du jour sur une échelle "light / moderate / heavy".
+// light     : charge négligeable, aucune adaptation
+// moderate  : footing à raccourcir (~50-70% de la durée normale)
+// heavy     : remplace la course par un repos actif (vélotaff = séance)
+export function classifyDailyCommute(profile) {
+  const km = profile.commuteDistanceKm;
+  if (!km) return { level: "none", equivKm: 0 };
+  const elev = profile.commuteElevationM ?? km * 10;
+  // Distance équivalente course pour 1 aller-retour
+  const equivKm = 2 * (km * 0.3 + elev / 100);
+  let level;
+  if (equivKm < 6) level = "light";        // < 6 km équiv → pas d'impact
+  else if (equivKm < 14) level = "moderate"; // 6-14 → footing raccourci
+  else level = "heavy";                     // > 14 → pas de course
+  return { level, equivKm: Math.round(equivKm * 10) / 10 };
+}
+
 // --- Plafonne la durée d'une séance au maxSession du jour -----------
 // On ne modifie pas le template mais on ajuste via le contexte
 // (les templates "en durée" ont un param `durationMin` qu'on peut forcer).
@@ -194,16 +212,22 @@ export function generateWeek({
   const sessionsPerWeek = profile.sessionsPerWeek ?? 3;
   const available = profile.availableDays ?? [];
   const commute = new Set(profile.commuteDays ?? []);
-  const commuteMode = profile.commuteMode ?? "complement";
   const recipe = RECIPES[sessionsPerWeek] ?? RECIPES[3];
 
-  // Mode "replace" : on exclut les jours de vélotaff des jours dispo pour
-  // la course. Ces jours seront automatiquement en "repos côte course"
-  // mais on les affichera comme journée de cross-training (vélotaff).
-  const runAvailable =
-    commuteMode === "replace"
-      ? available.filter((d) => !commute.has(d))
-      : available;
+  // --- Classification automatique de la charge vélotaff ---
+  // L'algo décide seul :
+  //   - light  : pas d'impact, on met ce qu'on veut
+  //   - moderate : pas de qualité + footing raccourci (60 %)
+  //   - heavy  : pas de course du tout, repos actif
+  const commuteClass = classifyDailyCommute(profile);
+  // Jours de vélotaff "heavy" : exclus du placement course
+  const heavyCommuteDays = new Set(
+    commuteClass.level === "heavy" ? [...commute] : []
+  );
+  // Jours exclus pour une séance qualité (light / moderate / heavy)
+  const noQualityDays = commute;
+  // Jours dispo pour la course (heavy exclus)
+  const runAvailable = available.filter((d) => !heavyCommuteDays.has(d));
 
   // Garde-fou : si le profil a moins de jours dispo que de séances,
   // on réduit la recette (ne devrait pas arriver grâce à la validation UI).
@@ -223,7 +247,7 @@ export function generateWeek({
     const candidates = runAvailable.filter(
       (d) =>
         !placements[d] && // jour libre
-        !commute.has(d)    // pas un jour de vélotaff
+        !noQualityDays.has(d) // pas un jour de vélotaff (peu importe la charge)
     );
     if (candidates.length === 0) {
       // Fallback : on autorise un jour de vélotaff, on downgrade en easy plus bas
@@ -269,7 +293,14 @@ export function generateWeek({
   let easySlotIndex = 0;
   for (const d of DAYS_ORDER) {
     if (!placements[d]) {
-      days[d] = { type: "rest", commute: commute.has(d) };
+      const isCommute = commute.has(d);
+      days[d] = {
+        type: "rest",
+        commute: isCommute,
+        // Si le vélotaff est "heavy", on indique que c'est LA séance du jour
+        commuteIsSession: isCommute && commuteClass.level === "heavy",
+        commuteClass: isCommute ? commuteClass : null,
+      };
       continue;
     }
     const p = placements[d];
@@ -316,8 +347,13 @@ export function generateWeek({
       template.id
     );
 
-    // Plafonne la durée du template au maxSession du jour via le contexte
-    const maxMin = capDurationForDay(d, profile, p.kind);
+    // Plafonne la durée du template au maxSession du jour via le contexte.
+    // Pour un jour de vélotaff "moderate", on raccourcit encore à 60 %.
+    let maxMin = capDurationForDay(d, profile, p.kind);
+    const isCommuteDay = commute.has(d);
+    if (isCommuteDay && commuteClass.level === "moderate") {
+      maxMin = Math.round(maxMin * 0.6);
+    }
     const session = generateSessionFromTemplate({
       template,
       profile,
@@ -332,6 +368,10 @@ export function generateWeek({
     days[d] = {
       type: "session",
       commute: commute.has(d),
+      commuteAdaptation:
+        isCommuteDay && commuteClass.level === "moderate"
+          ? { level: "moderate", equivKm: commuteClass.equivKm }
+          : null,
       downgraded: p._downgradedFromQuality || false,
       session,
     };

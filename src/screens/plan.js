@@ -202,17 +202,23 @@ function renderSessionCard(day, data, weekNumber) {
   if (!data) return "";
   if (data.type === "rest") {
     const isCommute = data.commute;
-    const commuteMode = profile.commuteMode ?? "complement";
+    const isSession = data.commuteIsSession;
     const label = isCommute
-      ? commuteMode === "replace"
-        ? "Vélotaff (cross training)"
-        : "Vélotaff seulement"
+      ? isSession
+        ? `Vélotaff cross (${data.commuteClass?.equivKm} km équiv.)`
+        : "Repos"
       : "Repos";
+    const sub = isCommute && isSession
+      ? "Le vélotaff remplace ta séance aujourd'hui"
+      : isCommute
+      ? null
+      : null;
     return `
       <li class="session-row session-row--rest">
         <div class="session-row__day">${DAY_FULL[day]}${isCommute ? ' 🚴' : ""}</div>
         <div class="session-row__body">
           <span class="muted">${label}</span>
+          ${sub ? `<div class="muted small">${sub}</div>` : ""}
         </div>
       </li>
     `;
@@ -229,6 +235,7 @@ function renderSessionCard(day, data, weekNumber) {
       ? `<span class="session-status session-status--partial" aria-label="Partielle">◐</span>`
       : `<span class="session-status session-status--skipped" aria-label="Passée">—</span>`
     : "";
+  const adapted = data.commuteAdaptation;
   return `
     <li class="session-row ${statusClass}" data-session-day="${day}" role="button" tabindex="0" style="border-left-color:${color}">
       <div class="session-row__day">
@@ -236,7 +243,7 @@ function renderSessionCard(day, data, weekNumber) {
       </div>
       <div class="session-row__body">
         <div class="session-row__title">${escapeHtml(label)}</div>
-        <div class="muted small">${s.totalDurationMin} min · ${difficultyLabel(s.difficulty)}</div>
+        <div class="muted small">${s.totalDurationMin} min · ${difficultyLabel(s.difficulty)}${adapted ? ` · <span class="adapted-tag">⚡ adapté vélotaff</span>` : ""}</div>
       </div>
       ${statusIcon}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="muted"><polyline points="9 18 15 12 9 6"/></svg>
