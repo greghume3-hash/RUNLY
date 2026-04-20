@@ -618,6 +618,7 @@ function attachListeners(root, ctx) {
   if (detailSessionKey) {
     const [wIdx, day] = detailSessionKey.split(":");
     const week = ctx.plan.weeks[Number(wIdx)];
+    const dayData = week?.days[day];
 
     const close = () => {
       detailSessionKey = null;
