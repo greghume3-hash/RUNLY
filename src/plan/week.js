@@ -83,6 +83,61 @@ function pickEasyFamily(slotIndex) {
   return rotation[slotIndex % rotation.length];
 }
 
+// ---------------------------------------------------------------------
+// Niveau 2 — Décide si on injecte une séance vélo dans la semaine
+// ---------------------------------------------------------------------
+// Règles :
+//  - Uniquement si l'utilisateur a le matos (home trainer, vélo d'appart
+//    OU est vélotaffeur : il a un vélo).
+//  - Phase base/developpement : vélo endurance possible (remplace 1 easy)
+//  - Phase base : vélo récup post-SL possible (jour J+1 du long run)
+//  - Phase spécifique : pas de vélo structuré (spécificité course prime),
+//    sauf vélo récup très léger post-SL
+//  - Phase taper : rien (repos ou course uniquement)
+//  - Si vélotaff lourd tous les jours : pas de vélo en plus (déjà saturé)
+//  - Plafond cross ≤ 40 % de la charge totale hebdo (cap Niveau 3)
+function shouldInjectBikeSession({ profile, phase, commuteClass }) {
+  // Matos nécessaire
+  const eq = profile.equipment ?? [];
+  const hasBike =
+    eq.includes("home_trainer") ||
+    eq.includes("indoor_bike") ||
+    (profile.commuteDays ?? []).length > 0;
+  if (!hasBike) return null;
+
+  // Pas de vélo structuré en taper
+  if (phase === "taper") return null;
+
+  // Si vélotaff lourd tous les jours, déjà saturé
+  if (
+    commuteClass.level === "heavy" &&
+    (profile.commuteDays?.length ?? 0) >= 4
+  ) {
+    return null;
+  }
+
+  // Phase base / null : bike_endurance en complément d'un easy
+  if (phase === "base" || phase == null) {
+    return {
+      action: "replace_easy", // remplace un slot easy par un bike
+      family: "bike",
+      templateId: "bike-endurance",
+    };
+  }
+
+  // Phase développement : vélo récup le lendemain de la SL (J+1)
+  if (phase === "development") {
+    return {
+      action: "add_after_long", // ajoute le lendemain de la SL
+      family: "bike",
+      templateId: "bike-recovery",
+    };
+  }
+
+  // Phase spécifique : pas d'injection (prime à la course)
+  return null;
+}
+
 // --- Multiplicateur de charge selon l'intensité perçue du vélotaff ---
 // chill  : e-bike, trajet cool → coefficient 0.7
 // normal : vélo musculaire sans se presser → 1.0 (défaut)
@@ -316,6 +371,44 @@ export function generateWeek({
     if (slot.kind === "easy") easyIdx++;
   }
 
+  // Niveau 2 : injection d'une séance vélo structurée si pertinent
+  const bikeInject = shouldInjectBikeSession({
+    profile,
+    phase,
+    commuteClass,
+  });
+  if (bikeInject) {
+    if (bikeInject.action === "replace_easy") {
+      // Remplace le dernier easy placé (= le moins "pivot") par le vélo
+      const easyPlacements = Object.entries(placements).filter(
+        ([, p]) => p.kind === "easy"
+      );
+      if (easyPlacements.length > 0) {
+        const [dayToReplace] = easyPlacements[easyPlacements.length - 1];
+        placements[dayToReplace] = {
+          kind: "cross",
+          family: bikeInject.family,
+          _forcedTemplateId: bikeInject.templateId,
+        };
+      }
+    } else if (bikeInject.action === "add_after_long" && longRunDay) {
+      // Ajoute le lendemain de la SL si libre
+      const idx = DAYS_ORDER.indexOf(longRunDay);
+      const nextDay = DAYS_ORDER[(idx + 1) % 7];
+      if (
+        available.includes(nextDay) &&
+        !placements[nextDay] &&
+        !heavyCommuteDays.has(nextDay)
+      ) {
+        placements[nextDay] = {
+          kind: "cross",
+          family: bikeInject.family,
+          _forcedTemplateId: bikeInject.templateId,
+        };
+      }
+    }
+  }
+
   // 4) Génération des séances à partir des placements
   // On passe par selectTemplate() pour bénéficier de la rotation
   // anti-répétition (cf. ./select.js).
@@ -353,10 +446,15 @@ export function generateWeek({
       easySlotIndex++;
     }
 
-    // Sélection du template : forcé (fresh) ou via le sélecteur
+    // Sélection du template :
+    //   - slot "fresh" → template easy alternatif forcé
+    //   - slot "bike injecté" (Niveau 2) → _forcedTemplateId
+    //   - sinon rotation normale
     let template;
     if (forcedTemplateId) {
       template = getTemplateById(forcedTemplateId);
+    } else if (p._forcedTemplateId) {
+      template = getTemplateById(p._forcedTemplateId);
     } else {
       template = selectTemplate(
         effectiveFamily,

@@ -369,6 +369,8 @@ function renderSessionModal({ plan }) {
 
         <p class="intent">${escapeHtml(s.intent)}</p>
 
+        ${s.family === "bike" ? renderBikeExecutionChooser(s) : ""}
+
         ${renderRouteBlock(s)}
 
         <ol class="modal__blocks">
@@ -495,6 +497,62 @@ function renderBlock(block) {
       <strong>${label}</strong> — ${block.durationMin ?? ""} min${pace}
       <p class="muted small">${desc}</p>
     </li>`;
+}
+
+// Bloc choix du support d'exécution pour une séance vélo structurée.
+// Principe : l'algo a prescrit une CHARGE CIBLE (durée + zone).
+// L'utilisateur choisit comment l'exécuter :
+//   - Home trainer (structure précise, cadence, intervalles)
+//   - Vélo extérieur (boucle libre, même charge cible)
+//   - Prolongation du vélotaff (ajoute un détour ce jour-là)
+function renderBikeExecutionChooser(session) {
+  const eq = profile.equipment ?? [];
+  const hasIndoor = eq.includes("home_trainer") || eq.includes("indoor_bike");
+  const hasCommute = (profile.commuteDays ?? []).length > 0;
+
+  const tpl = session.blocks?.[0];
+  const zone = session.family === "bike" && session.id
+    ? sessionBikeMetadata(session)
+    : null;
+
+  return `
+    <div class="bike-chooser">
+      <div class="bike-chooser__head">
+        <strong>🚴 Comment tu veux l'exécuter ?</strong>
+        ${zone ? `<span class="muted small">Zone cible : <strong>${zone.zone}</strong> · ${zone.label}${zone.cadence ? ` · cadence ${zone.cadence[0]}-${zone.cadence[1]} rpm` : ""}</span>` : ""}
+      </div>
+      <div class="bike-chooser__options">
+        ${hasIndoor ? `
+          <button class="bike-chooser__btn" data-mode="indoor" type="button">
+            <strong>🏠 Home trainer</strong>
+            <span class="muted small">Structure précise, cadence ciblée</span>
+          </button>
+        ` : ""}
+        <button class="bike-chooser__btn" data-mode="outdoor" type="button">
+          <strong>🌳 Vélo extérieur</strong>
+          <span class="muted small">Boucle libre à la bonne intensité</span>
+        </button>
+        ${hasCommute ? `
+          <button class="bike-chooser__btn" data-mode="commute-ext" type="button">
+            <strong>🚲 Détour sur ton vélotaff</strong>
+            <span class="muted small">Prolonge ton trajet habituel</span>
+          </button>
+        ` : ""}
+      </div>
+      <div class="bike-chooser__advice" id="bike-mode-advice" hidden></div>
+    </div>
+  `;
+}
+
+// Récupère la méta vélo depuis le template (zone, cadence) sans re-résoudre tout
+function sessionBikeMetadata(session) {
+  // On passe via l'id du template pour récupérer les méta originales
+  const byId = {
+    "bike-endurance": { zone: "Z2", label: "Endurance fondamentale", cadence: [80, 90] },
+    "bike-threshold": { zone: "Z4", label: "Seuil", cadence: [85, 95] },
+    "bike-recovery":  { zone: "Z1", label: "Récupération",           cadence: [75, 85] },
+  };
+  return byId[session.templateId] ?? null;
 }
 
 // Bloc "Suggérer un parcours".
@@ -671,6 +729,29 @@ function attachListeners(root, ctx) {
     root.querySelector("#uncheck-btn")?.addEventListener("click", () => {
       clearCompletion(week.weekNumber, day);
       render(root, ctx);
+    });
+
+    // Choix du support d'exécution pour les séances vélo (Niveau 2)
+    root.querySelectorAll(".bike-chooser__btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        root
+          .querySelectorAll(".bike-chooser__btn")
+          .forEach((b) => b.classList.remove("bike-chooser__btn--active"));
+        btn.classList.add("bike-chooser__btn--active");
+        const mode = btn.dataset.mode;
+        const advice = root.querySelector("#bike-mode-advice");
+        if (!advice) return;
+        const messages = {
+          indoor:
+            "<strong>🏠 Home trainer / vélo d'appart :</strong> respecte la structure précise des blocs ci-dessous. Ventilateur indispensable. Cadence cible = rpm affichés.",
+          outdoor:
+            "<strong>🌳 Vélo extérieur :</strong> boucle libre à la durée totale. Reste régulier·e sur l'intensité ciblée (RPE 4-5/10 pour endurance, 7-8/10 pour seuil). Évite les arrêts fréquents.",
+          "commute-ext":
+            "<strong>🚲 Détour vélotaff :</strong> prolonge ton trajet habituel pour atteindre la durée cible. Exemple : 20 km de détour sur un retour de 8 km. Joue avec des boucles dans ton quartier.",
+        };
+        advice.hidden = false;
+        advice.innerHTML = messages[mode] ?? "";
+      });
     });
 
     // Suggestion de parcours via Netlify Function → OpenRouteService

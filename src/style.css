@@ -1085,6 +1085,67 @@ body {
   font-weight: 600;
 }
 
+/* --- Bike session execution chooser (Niveau 2) --- */
+.bike-chooser {
+  margin: 16px 0;
+  padding: 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bike-chooser__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bike-chooser__options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bike-chooser__btn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.bike-chooser__btn:hover {
+  border-color: var(--color-accent);
+  background: #f8fafc;
+}
+
+.bike-chooser__btn--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.bike-chooser__btn--active .muted {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.bike-chooser__advice {
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 /* --- Note post-séance --- */
 .note-block {
   margin: 16px 0;

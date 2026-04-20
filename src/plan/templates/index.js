@@ -47,6 +47,12 @@ import {
   crossHomeTrainerTemplate,
 } from "./cross.js";
 
+import {
+  bikeEnduranceTemplate,
+  bikeThresholdTemplate,
+  bikeRecoveryTemplate,
+} from "./bike.js";
+
 import { walkRun60_120Template } from "./walk_run.js";
 
 export const ALL_TEMPLATES = [
@@ -77,11 +83,15 @@ export const ALL_TEMPLATES = [
   longProgressiveTemplate,
   longWithMarathonBlockTemplate,
   longTrailTemplate,
-  // cross
+  // cross générique
   crossBikeEasyTemplate,
   crossSwimTemplate,
   crossStrengthTemplate,
   crossHomeTrainerTemplate,
+  // vélo structuré (Niveau 2 — cross training)
+  bikeEnduranceTemplate,
+  bikeThresholdTemplate,
+  bikeRecoveryTemplate,
   // walk-run
   walkRun60_120Template,
 ];
