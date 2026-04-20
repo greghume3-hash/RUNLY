@@ -126,6 +126,27 @@ export function scheduleScreen(root) {
               </div>
             </fieldset>
 
+            <fieldset class="field">
+              <legend class="field__label">
+                Adresse de ton travail
+                <span class="field__hint">(optionnel, pour calculer auto)</span>
+              </legend>
+              <div class="location-search">
+                <input
+                  type="text"
+                  name="workLocationCity"
+                  id="work-location-input"
+                  placeholder="Adresse ou ville du bureau…"
+                  autocomplete="off"
+                />
+                <ul class="location-suggestions" id="work-location-suggestions" hidden></ul>
+              </div>
+              <button class="btn btn--outline" id="compute-commute-btn" type="button">
+                📏 Calculer automatiquement distance et D+
+              </button>
+              <p class="field__help" id="compute-commute-status" hidden></p>
+            </fieldset>
+
             <label class="field">
               <span class="field__label">
                 Distance aller simple
@@ -233,11 +254,111 @@ export function scheduleScreen(root) {
     form.commuteDistanceKm.value = profile.commuteDistanceKm;
   if (profile.commuteElevationM != null)
     form.commuteElevationM.value = profile.commuteElevationM;
+  if (profile.workLocationCity)
+    form.workLocationCity.value = profile.workLocationCity;
   const intensity = profile.commuteIntensity ?? "normal";
   const intensityRadio = form.querySelector(
     `input[name="commuteIntensity"][value="${intensity}"]`
   );
   if (intensityRadio) intensityRadio.checked = true;
+
+  // --- Geocoding pour l'adresse du travail (même logique qu'environment.js) ---
+  const workInput = form.workLocationCity;
+  const workSuggestions = root.querySelector("#work-location-suggestions");
+  let workSearchTimer = null;
+  let tempWorkLat = profile.workLocationLat ?? null;
+  let tempWorkLng = profile.workLocationLng ?? null;
+
+  workInput.addEventListener("input", () => {
+    const q = workInput.value.trim();
+    clearTimeout(workSearchTimer);
+    if (q.length < 2) {
+      workSuggestions.hidden = true;
+      workSuggestions.innerHTML = "";
+      return;
+    }
+    workSearchTimer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return;
+        const results = await res.json();
+        if (results.length === 0) {
+          workSuggestions.hidden = true;
+          return;
+        }
+        workSuggestions.innerHTML = results
+          .map(
+            (r) =>
+              `<li class="location-suggestions__item" data-lat="${r.lat}" data-lng="${r.lng}" data-name="${escapeAttr(r.name)}">${escapeHtml(r.name)}</li>`
+          )
+          .join("");
+        workSuggestions.hidden = false;
+        workSuggestions.querySelectorAll("li").forEach((li) => {
+          li.addEventListener("click", () => {
+            tempWorkLat = Number(li.dataset.lat);
+            tempWorkLng = Number(li.dataset.lng);
+            workInput.value = li.dataset.name;
+            workSuggestions.hidden = true;
+          });
+        });
+      } catch (e) {
+        // silent
+      }
+    }, 400);
+  });
+  document.addEventListener("click", (e) => {
+    if (!workInput.contains(e.target) && !workSuggestions.contains(e.target)) {
+      workSuggestions.hidden = true;
+    }
+  });
+
+  // --- Bouton "Calculer automatiquement distance et D+" ---
+  const computeBtn = root.querySelector("#compute-commute-btn");
+  const computeStatus = root.querySelector("#compute-commute-status");
+  computeBtn.addEventListener("click", async () => {
+    computeStatus.hidden = false;
+
+    // On a besoin : domicile (profile.locationLat/Lng) + travail (tempWorkLat/Lng)
+    const homeLat = profile.locationLat;
+    const homeLng = profile.locationLng;
+    if (homeLat == null || homeLng == null) {
+      computeStatus.textContent =
+        "⚠️ Ta localisation domicile n'est pas encore renseignée. Tu la saisiras à l'écran suivant, puis reviens ici pour calculer.";
+      return;
+    }
+    if (tempWorkLat == null || tempWorkLng == null) {
+      computeStatus.textContent =
+        "⚠️ Sélectionne d'abord une adresse de travail dans les suggestions.";
+      return;
+    }
+    computeBtn.disabled = true;
+    computeStatus.textContent = "Calcul en cours…";
+    try {
+      const res = await fetch("/api/commute-stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          homeLat,
+          homeLng,
+          workLat: tempWorkLat,
+          workLng: tempWorkLng,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        computeStatus.textContent = `⚠️ Erreur : ${err.error ?? res.status}`;
+        return;
+      }
+      const stats = await res.json();
+      form.commuteDistanceKm.value = stats.distanceKm;
+      form.commuteElevationM.value = stats.elevationM;
+      computeStatus.textContent = `✓ ${stats.distanceKm} km · +${stats.elevationM} m (trajet vélo estimé ${stats.durationMin} min)`;
+    } catch (e) {
+      computeStatus.textContent = `⚠️ Impossible de calculer : ${e.message}`;
+    } finally {
+      computeBtn.disabled = false;
+    }
+  });
 
   // --- Logique "jour de sortie longue" ---
   // Les chips s'affichent seulement à partir des jours cochés ci-dessus.
@@ -350,6 +471,7 @@ export function scheduleScreen(root) {
     const commuteDistanceKm = data.get("commuteDistanceKm");
     const commuteElevationM = data.get("commuteElevationM");
     const commuteIntensity = data.get("commuteIntensity") || "normal";
+    const workLocationCity = data.get("workLocationCity");
 
     updateProfile({
       sessionsPerWeek: Number(sessionsPerWeek),
@@ -361,9 +483,22 @@ export function scheduleScreen(root) {
       commuteDistanceKm: commuteDistanceKm ? Number(commuteDistanceKm) : null,
       commuteElevationM: commuteElevationM ? Number(commuteElevationM) : null,
       commuteIntensity,
+      workLocationCity: workLocationCity?.trim() || null,
+      workLocationLat: tempWorkLat,
+      workLocationLng: tempWorkLng,
     });
 
     console.log("[Runly] profil après étape 4 :", { ...profile });
     navigate("environment");
   });
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+function escapeAttr(s) {
+  return escapeHtml(s).replaceAll('"', "&quot;");
 }
