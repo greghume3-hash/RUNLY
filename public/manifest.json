@@ -1,0 +1,19 @@
+{
+  "name": "Runly — Ton plan running personnalisé",
+  "short_name": "Runly",
+  "description": "Plans d'entraînement running personnalisés, adaptés à ton niveau, ton environnement et ton quotidien.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

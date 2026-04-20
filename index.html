@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#2563eb" />
+    <title>Runly — Ton plan running personnalisé</title>
+
+    <!-- PWA : manifest + icône -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Runly" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Le contenu est injecté par JS selon l'écran courant (voir src/router.js) -->
+    <div id="app"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

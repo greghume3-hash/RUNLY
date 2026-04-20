@@ -1,0 +1,28 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# /api/* redirige vers les functions. Doit venir AVANT la redirection SPA.
+[[redirects]]
+  from = "/api/route"
+  to = "/.netlify/functions/route"
+  status = 200
+
+# Tous les autres chemins sont rewrités vers index.html (routing côté client)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Service worker doit être servi depuis la racine et sans cache agressif
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"

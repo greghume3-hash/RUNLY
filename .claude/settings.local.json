@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(git --version)",
+      "Bash(where node.exe)",
+      "Bash(where npm.cmd)",
+      "WebSearch",
+      "Bash(where node:*)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --version)",
+      "Bash(\"/c/Program Files/nodejs/npm.cmd\" --version)",
+      "Bash(\"/c/Program Files/nodejs/npm.cmd\" install)",
+      "Bash(export PATH=\"/c/Program Files/nodejs:$PATH\")",
+      "Bash(rm -rf node_modules package-lock.json)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(taskkill //F //IM node.exe)",
+      "WebFetch(domain:cheery-tapioca-4330b7.netlify.app)",
+      "WebFetch(domain:fluffy-marigold-b3c06e.netlify.app)"
+    ]
+  }
+}
