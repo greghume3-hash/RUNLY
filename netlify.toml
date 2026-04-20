@@ -9,6 +9,11 @@
   to = "/.netlify/functions/route"
   status = 200
 
+[[redirects]]
+  from = "/api/geocode"
+  to = "/.netlify/functions/geocode"
+  status = 200
+
 # Tous les autres chemins sont rewrités vers index.html (routing côté client)
 [[redirects]]
   from = "/*"

@@ -50,12 +50,16 @@ export function environmentScreen(root) {
               Ta localisation
               <span class="field__hint">(optionnel)</span>
             </legend>
-            <input
-              type="text"
-              name="locationCity"
-              placeholder="Ex : Lyon, 75011, Chamonix…"
-              autocomplete="address-level2"
-            />
+            <div class="location-search">
+              <input
+                type="text"
+                name="locationCity"
+                id="location-input"
+                placeholder="Ex : Lyon, 75011, Chamonix…"
+                autocomplete="off"
+              />
+              <ul class="location-suggestions" id="location-suggestions" hidden></ul>
+            </div>
             <div class="location-controls">
               <button class="btn btn--outline" id="geolocate-btn" type="button">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg>
@@ -185,6 +189,62 @@ export function environmentScreen(root) {
   let tempLat = profile.locationLat ?? null;
   let tempLng = profile.locationLng ?? null;
 
+  // --- Geocoding (Nominatim) : suggestions depuis la saisie texte ---
+  const suggestionsEl = root.querySelector("#location-suggestions");
+  let searchTimer = null;
+  let lastQuery = "";
+  cityInput.addEventListener("input", () => {
+    const q = cityInput.value.trim();
+    clearTimeout(searchTimer);
+    if (q.length < 2) {
+      suggestionsEl.hidden = true;
+      suggestionsEl.innerHTML = "";
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      if (q === lastQuery) return;
+      lastQuery = q;
+      try {
+        const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return;
+        const results = await res.json();
+        if (results.length === 0) {
+          suggestionsEl.hidden = true;
+          suggestionsEl.innerHTML = "";
+          return;
+        }
+        suggestionsEl.innerHTML = results
+          .map(
+            (r, i) =>
+              `<li class="location-suggestions__item" data-idx="${i}" data-lat="${r.lat}" data-lng="${r.lng}" data-name="${escapeAttr(r.name)}">${escapeHtml(r.name)}</li>`
+          )
+          .join("");
+        suggestionsEl.hidden = false;
+
+        // Click = sélection
+        suggestionsEl.querySelectorAll("li").forEach((li) => {
+          li.addEventListener("click", () => {
+            tempLat = Number(li.dataset.lat);
+            tempLng = Number(li.dataset.lng);
+            cityInput.value = li.dataset.name;
+            suggestionsEl.hidden = true;
+            geoStatus.hidden = false;
+            geoStatus.textContent = `📍 Position sélectionnée (${tempLat.toFixed(3)}, ${tempLng.toFixed(3)})`;
+          });
+        });
+      } catch (e) {
+        // Silent fail — l'user peut toujours utiliser le GPS
+      }
+    }, 400);
+  });
+
+  // Ferme les suggestions au clic extérieur
+  document.addEventListener("click", (e) => {
+    if (!cityInput.contains(e.target) && !suggestionsEl.contains(e.target)) {
+      suggestionsEl.hidden = true;
+    }
+  });
+
   geoBtn.addEventListener("click", () => {
     if (!("geolocation" in navigator)) {
       geoStatus.hidden = false;
@@ -259,4 +319,14 @@ export function environmentScreen(root) {
     console.log("[Runly] profil final :", { ...profile });
     navigate("plan");
   });
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+function escapeAttr(s) {
+  return escapeHtml(s).replaceAll('"', "&quot;");
 }

@@ -473,6 +473,17 @@ export function generateSessionFromTemplate({
         const rec = b.recovery?.durationMin ?? 0;
         return acc + b.repetitions * b.work.durationMin + (b.repetitions - 1) * rec;
       }
+      // Intervalles par temps (ex: côtes, 30-30) — durée en secondes
+      if (b.repetitions && b.work?.durationSec) {
+        const workSec = b.repetitions * b.work.durationSec;
+        const recSec = (b.repetitions - 1) * (b.recovery?.durationSec ?? 0);
+        // Pour les côtes, la récup (descente en marchant) prend aussi du temps
+        // et elle doit être comptée APRÈS chaque rep, pas seulement entre
+        const recAllSec = b.type === "intervals" && b.label === "Côtes"
+          ? b.repetitions * (b.recovery?.durationSec ?? 0)
+          : recSec;
+        return acc + (workSec + recAllSec) / 60;
+      }
       if (b.repetitions && b.work?.distance) {
         // Estimation durée intervalle = distance × allure
         const target = paces.getTargetPace(

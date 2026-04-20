@@ -201,11 +201,18 @@ function renderWeekView({ plan }) {
 function renderSessionCard(day, data, weekNumber) {
   if (!data) return "";
   if (data.type === "rest") {
+    const isCommute = data.commute;
+    const commuteMode = profile.commuteMode ?? "complement";
+    const label = isCommute
+      ? commuteMode === "replace"
+        ? "Vélotaff (cross training)"
+        : "Vélotaff seulement"
+      : "Repos";
     return `
       <li class="session-row session-row--rest">
-        <div class="session-row__day">${DAY_FULL[day]}${data.commute ? ' 🚴' : ""}</div>
+        <div class="session-row__day">${DAY_FULL[day]}${isCommute ? ' 🚴' : ""}</div>
         <div class="session-row__body">
-          <span class="muted">${data.commute ? "Vélotaff seulement" : "Repos"}</span>
+          <span class="muted">${label}</span>
         </div>
       </li>
     `;

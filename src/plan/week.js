@@ -194,11 +194,20 @@ export function generateWeek({
   const sessionsPerWeek = profile.sessionsPerWeek ?? 3;
   const available = profile.availableDays ?? [];
   const commute = new Set(profile.commuteDays ?? []);
+  const commuteMode = profile.commuteMode ?? "complement";
   const recipe = RECIPES[sessionsPerWeek] ?? RECIPES[3];
+
+  // Mode "replace" : on exclut les jours de vélotaff des jours dispo pour
+  // la course. Ces jours seront automatiquement en "repos côte course"
+  // mais on les affichera comme journée de cross-training (vélotaff).
+  const runAvailable =
+    commuteMode === "replace"
+      ? available.filter((d) => !commute.has(d))
+      : available;
 
   // Garde-fou : si le profil a moins de jours dispo que de séances,
   // on réduit la recette (ne devrait pas arriver grâce à la validation UI).
-  const effectiveRecipe = recipe.slice(0, Math.min(recipe.length, available.length));
+  const effectiveRecipe = recipe.slice(0, Math.min(recipe.length, runAvailable.length));
 
   // 1) Sortie longue
   const longRunDay = resolveLongRunDay(profile);
@@ -211,14 +220,14 @@ export function generateWeek({
   // 2) Séances "quality"
   const qualitySlots = effectiveRecipe.filter((s) => s.kind === "quality");
   for (let i = 0; i < qualitySlots.length; i++) {
-    const candidates = available.filter(
+    const candidates = runAvailable.filter(
       (d) =>
         !placements[d] && // jour libre
         !commute.has(d)    // pas un jour de vélotaff
     );
     if (candidates.length === 0) {
       // Fallback : on autorise un jour de vélotaff, on downgrade en easy plus bas
-      const fallback = available.find((d) => !placements[d]);
+      const fallback = runAvailable.find((d) => !placements[d]);
       if (fallback) {
         placements[fallback] = {
           kind: "easy",
@@ -244,7 +253,7 @@ export function generateWeek({
 
   let easyIdx = 0;
   for (const slot of [...easySlots, ...recoverySlots]) {
-    const day = available.find((d) => !placements[d]);
+    const day = runAvailable.find((d) => !placements[d]);
     if (!day) break;
     placements[day] = {
       kind: slot.kind,
