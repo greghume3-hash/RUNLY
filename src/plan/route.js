@@ -7,7 +7,10 @@
 // ---------------------------------------------------------------------
 function pickOrsProfile(session, userProfile) {
   if (session.type === "cross") {
-    if (session.family === "cross" && session.blocks[0]?.label === "Vélo") {
+    // Nouvelle famille "bike" (bike-endurance/threshold/recovery) — toujours vélo
+    if (session.family === "bike") return "cycling-regular";
+    // Ancienne famille "cross" générique : vélo seulement si le 1er bloc est étiqueté "Vélo"
+    if (session.family === "cross" && session.blocks?.[0]?.label === "Vélo") {
       return "cycling-regular";
     }
     return null;
@@ -163,8 +166,20 @@ function distanceForBlock(b) {
     return (b.durationMin * 11) / 60;
   }
 
-  // Cross-training : pas compté en distance running
-  if (b.type === "cross") return 0;
+  // Cross-training : distance vélo estimée selon l'intensité
+  // (les autres cross — natation, renfo, rameur — restent à 0)
+  if (b.type === "cross") {
+    // Extrait la vitesse vélo selon l'intensité du bloc
+    // easy/recovery : ~22 km/h, hard (seuil) : ~28 km/h
+    const isBike = b.label === "Vélo" || b.label?.startsWith("Vélo");
+    if (!isBike) return 0;
+    const speedKmh = b.description?.includes("soutenu")
+      ? 28
+      : b.description?.includes("modérée")
+      ? 22
+      : 22;
+    return ((b.durationMin || 0) * speedKmh) / 60;
+  }
 
   // Fallback
   return ((b.durationMin || 0) * 10) / 60;
