@@ -217,12 +217,16 @@ export async function fetchRoute({ session, userProfile, seed }) {
 // ---------------------------------------------------------------------
 // Extraction de stats d'un GeoJSON renvoyé par ORS
 // ---------------------------------------------------------------------
-export function extractRouteStats(geojson) {
+// IMPORTANT : la durée renvoyée par ORS correspond au profil demandé
+// (foot-walking = 5 km/h). Elle n'est donc PAS pertinente pour running.
+// On la recalcule depuis l'allure cible de la séance si fournie.
+export function extractRouteStats(geojson, session = null) {
   const feature = geojson?.features?.[0];
   if (!feature) return null;
   const props = feature.properties?.summary ?? {};
-  // L'élévation est dans les coordonnées (lng, lat, ele) si elevation: true
   const coords = feature.geometry?.coordinates ?? [];
+
+  // Calcul du dénivelé depuis les coordonnées 3D
   let totalAscent = 0;
   let totalDescent = 0;
   for (let i = 1; i < coords.length; i++) {
@@ -232,9 +236,23 @@ export function extractRouteStats(geojson) {
     if (diff > 0) totalAscent += diff;
     else totalDescent -= diff;
   }
+
+  const distanceKm = Math.round((props.distance ?? 0) / 100) / 10;
+
+  // Durée estimée : on privilégie la durée de la séance (déjà calibrée
+  // avec warmup/cooldown/allures réelles). Sinon on estime depuis
+  // l'allure moyenne du profil ORS. Jamais la durée ORS brute.
+  let durationMin;
+  if (session?.totalDurationMin) {
+    durationMin = session.totalDurationMin;
+  } else {
+    // Fallback : vitesse EF typique 10 km/h
+    durationMin = Math.round((distanceKm / 10) * 60);
+  }
+
   return {
-    distanceKm: Math.round((props.distance ?? 0) / 100) / 10, // arrondi 0.1 km
-    durationMin: Math.round((props.duration ?? 0) / 60),
+    distanceKm,
+    durationMin,
     ascent: Math.round(totalAscent),
     descent: Math.round(totalDescent),
     coords, // [lng, lat, ele]

@@ -18,6 +18,7 @@ import {
   extractRouteStats,
   estimateRouteDistance,
 } from "../plan/route.js";
+import { geojsonToGpx, shareGpx, downloadGpx } from "../plan/gpx.js";
 
 const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_SHORT = { mon: "L", tue: "M", wed: "M", thu: "J", fri: "V", sat: "S", sun: "D" };
@@ -515,6 +516,17 @@ function renderRouteBlock(session) {
           Autre variante
         </button>
       </div>
+      <div class="route-export" id="route-export" hidden>
+        <button class="btn btn--primary" id="download-gpx-btn" type="button">
+          📥 Télécharger GPX (Garmin, Strava…)
+        </button>
+        <button class="btn btn--link" id="share-gpx-btn" type="button" hidden>
+          Partager
+        </button>
+        <p class="muted small" style="margin:4px 0 0 0">
+          Importe le fichier dans Garmin Connect (Activités → Courses → Importer) ou Strava.
+        </p>
+      </div>
     </div>
   `;
 }
@@ -672,8 +684,12 @@ function attachListeners(root, ctx) {
           userProfile: profile,
           seed,
         });
-        const stats = extractRouteStats(geojson);
+        const stats = extractRouteStats(geojson, dayData.session);
         if (!stats) throw new Error("empty_geojson");
+
+        // On stocke le GeoJSON pour l'export GPX
+        mapEl2._lastGeojson = geojson;
+        mapEl2._lastStats = stats;
 
         // Supprime l'ancienne polyline si présente
         if (currentPolyline) map.removeLayer(currentPolyline);
@@ -704,9 +720,14 @@ function attachListeners(root, ctx) {
           ${approximate ? `<div class="route-approximate" style="grid-column:1/-1">⚠️ Distance approximative, essaie une autre variante.</div>` : ""}
         `;
 
-        // Remplace le bouton principal par "Variante"
+        // Remplace le bouton principal par "Variante" + affiche export
         suggestBtn.hidden = true;
         newRouteBtn.hidden = false;
+        const exportEl = root.querySelector("#route-export");
+        if (exportEl) exportEl.hidden = false;
+        // Afficher le bouton "Partager" seulement si la Web Share API supporte les fichiers
+        const shareBtn = root.querySelector("#share-gpx-btn");
+        if (shareBtn && navigator.canShare) shareBtn.hidden = false;
       } catch (err) {
         errorEl.hidden = false;
         errorEl.textContent =
@@ -726,6 +747,39 @@ function attachListeners(root, ctx) {
     newRouteBtn?.addEventListener("click", () =>
       loadRoute(Math.floor(Math.random() * 1e6))
     );
+
+    // Export GPX : génération + téléchargement du fichier
+    const gpxFilename = () => {
+      const s = dayData.session;
+      const day = DAY_FULL[detailSessionKey.split(":")[1]] ?? "";
+      const km = mapEl2._lastStats?.distanceKm ?? "";
+      return `runly-S${week.weekNumber}-${day}-${km}km.gpx`
+        .replace(/\s+/g, "_")
+        .toLowerCase();
+    };
+    const buildGpxString = () => {
+      if (!mapEl2._lastGeojson) return null;
+      const s = dayData.session;
+      const name = `Runly · ${FAMILY_LABELS[s.family] ?? s.family} · S${week.weekNumber}`;
+      const desc = s.intent ?? "";
+      return geojsonToGpx(mapEl2._lastGeojson, { name, description: desc });
+    };
+
+    root.querySelector("#download-gpx-btn")?.addEventListener("click", () => {
+      const gpx = buildGpxString();
+      if (!gpx) return;
+      downloadGpx(gpx, gpxFilename());
+    });
+    root.querySelector("#share-gpx-btn")?.addEventListener("click", async () => {
+      const gpx = buildGpxString();
+      if (!gpx) return;
+      try {
+        await shareGpx(gpx, gpxFilename());
+      } catch (e) {
+        // Annulation user ou erreur silencieuse
+        console.log("[Runly] partage annulé ou échoué:", e);
+      }
+    });
 
     // Note post-séance : debounced save
     const noteEl = root.querySelector("#session-note");
