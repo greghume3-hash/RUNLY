@@ -232,6 +232,10 @@ function computeVolumeProgression(weeksCount, profile, phases) {
 //
 // On expose aussi un flag `lowVolume` pour que l'UI puisse indiquer que
 // l'ACWR est peu pertinent sur ces semaines.
+// ACWR unifié (Niveau 3) : combinedLoad = course + vélotaff.
+// Seuils adaptatifs selon le niveau de charge chronique (évite les faux
+// positifs sur petits volumes). Flag `crossHeavy` si le vélotaff
+// représente > 40 % de la charge totale de la semaine.
 function computeAcwr(weeks) {
   return weeks.map((w, i) => {
     const acuteLoad = w.stats?.combinedLoad ?? 0;
@@ -262,6 +266,9 @@ function computeAcwr(weeks) {
       zone,
       chronicLoad: Math.round(chronicAvg),
       lowVolume: chronicAvg < 150,
+      // Niveau 3 : flag si la charge cross dépasse 40 % du total
+      crossRatio: w.stats?.crossRatio ?? 0,
+      crossHeavy: w.stats?.crossCapExceeded ?? false,
     };
   });
 }

@@ -231,8 +231,9 @@ function dayDistance(a, b) {
 }
 
 // Choisit le meilleur jour pour une séance "quality" : maximiser la
-// distance avec les jours déjà occupés par des séances dures.
-function pickBestQualityDay(candidates, hardDays) {
+// distance avec les jours déjà occupés par des séances dures ET les
+// jours de vélotaff modéré/lourd (anti-cumul fatigue — Niveau 3).
+function pickBestQualityDay(candidates, hardDays, moderateLoadDays = []) {
   if (candidates.length === 0) return null;
   let best = candidates[0];
   let bestScore = -Infinity;
@@ -240,9 +241,15 @@ function pickBestQualityDay(candidates, hardDays) {
     const minDistToHard = hardDays.length
       ? Math.min(...hardDays.map((h) => dayDistance(day, h)))
       : Infinity;
+    // Anti-cumul : distance aux jours de vélotaff qui chargent les jambes
+    // (moderate ou heavy). On pénalise fortement l'adjacence (distance = 1).
+    const minDistToModerate = moderateLoadDays.length
+      ? Math.min(...moderateLoadDays.map((h) => dayDistance(day, h)))
+      : Infinity;
+    const cumulPenalty = minDistToModerate === 1 ? -2 : 0;
     // Bonus léger pour les jours milieu de semaine (mar/mer/jeu)
     const midWeekBonus = ["tue", "wed", "thu"].includes(day) ? 0.2 : 0;
-    const score = minDistToHard + midWeekBonus;
+    const score = minDistToHard + midWeekBonus + cumulPenalty;
     if (score > bestScore) {
       bestScore = score;
       best = day;
@@ -349,7 +356,13 @@ export function generateWeek({
     const hardDays = Object.entries(placements)
       .filter(([, p]) => p.kind === "quality" || p.kind === "long")
       .map(([d]) => d);
-    const day = pickBestQualityDay(candidates, hardDays);
+    // Anti-cumul (Niveau 3) : jours de vélotaff modéré/lourd = jambes
+    // sollicitées. On préfère placer la qualité le plus loin possible.
+    const moderateLoadDays =
+      commuteClass.level === "moderate" || commuteClass.level === "heavy"
+        ? [...commute]
+        : [];
+    const day = pickBestQualityDay(candidates, hardDays, moderateLoadDays);
     placements[day] = {
       kind: "quality",
       family: pickQualityFamily(i, { phase, objectiveCategory: profile.objectiveCategory }),
@@ -371,12 +384,27 @@ export function generateWeek({
     if (slot.kind === "easy") easyIdx++;
   }
 
+  // Niveau 3 : calcul du cap "cross ≤ 40 % de la charge totale"
+  // On estime la charge course déjà placée + charge vélotaff estimée.
+  // Si le ratio cross est déjà au-dessus de 40 %, on n'injecte PAS de vélo
+  // structuré en plus (la spécificité course doit primer).
+  const commuteLoadTotal = estimateCommuteLoad(profile, phase) * commute.size;
+  // Estimation rapide charge course placée (forfait par kind)
+  const runLoadEstimate = Object.values(placements).reduce((acc, p) => {
+    if (p.kind === "long") return acc + 80;
+    if (p.kind === "quality") return acc + 85;
+    if (p.kind === "easy") return acc + 30;
+    if (p.kind === "recovery") return acc + 15;
+    return acc;
+  }, 0);
+  const totalIfInjected = runLoadEstimate + commuteLoadTotal + 30; // +30 = bike endurance estimate
+  const crossRatio = (commuteLoadTotal + 30) / Math.max(1, totalIfInjected);
+  const crossCapExceeded = crossRatio > 0.40;
+
   // Niveau 2 : injection d'une séance vélo structurée si pertinent
-  const bikeInject = shouldInjectBikeSession({
-    profile,
-    phase,
-    commuteClass,
-  });
+  const bikeInject = crossCapExceeded
+    ? null
+    : shouldInjectBikeSession({ profile, phase, commuteClass });
   if (bikeInject) {
     if (bikeInject.action === "replace_easy") {
       // Remplace le dernier easy placé (= le moins "pivot") par le vélo
@@ -537,6 +565,10 @@ export function generateWeek({
         .filter(([, v]) => v.type === "session" && v.session.family !== "easy" && v.session.family !== "recovery" && v.session.family !== "long")
         .map(([d]) => d),
       commuteDays: [...commute],
+      // Niveau 3 : indicateurs de charge croisée
+      crossRatio: Math.round((commuteLoad / Math.max(1, totalLoad + commuteLoad)) * 100),
+      crossCapExceeded: commuteLoad / Math.max(1, totalLoad + commuteLoad) > 0.40,
+      commuteIntensity: profile.commuteIntensity ?? "normal",
     },
   };
 }
