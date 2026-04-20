@@ -21,10 +21,10 @@ function pickOrsProfile(session, userProfile) {
 // ---------------------------------------------------------------------
 // Préférence ORS + cibles de dénivelé par type de séance
 // ---------------------------------------------------------------------
-// La préférence "shortest" favorise les parcours plats (chemin le plus court
-// donc moins de détours = souvent moins de dénivelé).
-// La cible `elevPerKmMax` (en m/km) sert à évaluer la qualité du parcours :
-// on refait un appel s'il dépasse ce seuil (dans la mesure des retries).
+// "shortest" favorise les parcours plats (moins de détours = moins de D+).
+// elevPerKmMin/Max (en m/km) = fourchette acceptable pour le parcours.
+// Principe : seules les séances SPÉCIFIQUES (côtes, SL trail clé) cherchent
+// du dénivelé ; la majorité des séances se font sur du plat à modéré.
 function getRouteConstraints(session, userProfile) {
   const type = session.type;
   const family = session.family;
@@ -32,22 +32,29 @@ function getRouteConstraints(session, userProfile) {
   const targetEleM = userProfile.targetElevationM ?? 0;
   const targetDistKm = userProfile.objectiveDistanceKm ?? 0;
 
-  // Côtes = on veut du dénivelé
+  // Côtes = on VEUT du dénivelé fort
   if (family === "hills") {
-    return { preference: "recommended", elevPerKmMin: 25, elevPerKmMax: 50 };
+    return { preference: "recommended", elevPerKmMin: 25, elevPerKmMax: 60 };
   }
 
-  // Trail : D+ cible proportionnel au D+ de la course
-  if (obj === "trail" && targetDistKm > 0 && targetEleM > 0) {
-    const elevPerKm = targetEleM / targetDistKm;
+  // Sortie longue trail : 60-90 % du D+/km de la course (jamais plus).
+  // Le but d'une SL n'est PAS de reproduire tout le dénivelé de la course,
+  // mais d'habituer les jambes progressivement.
+  if (type === "long" && obj === "trail" && targetDistKm > 0 && targetEleM > 0) {
+    const raceElevPerKm = targetEleM / targetDistKm;
     return {
       preference: "recommended",
-      elevPerKmMin: Math.max(10, elevPerKm * 0.6),
-      elevPerKmMax: elevPerKm * 1.4,
+      elevPerKmMin: Math.round(Math.max(10, raceElevPerKm * 0.6)),
+      elevPerKmMax: Math.round(raceElevPerKm * 0.9),
     };
   }
 
-  // Footings easy / récup / VMA / seuil : on veut du plat
+  // Footings trail (pas la SL) : plat à modéré
+  if (obj === "trail" && (type === "easy" || type === "recovery")) {
+    return { preference: "recommended", elevPerKmMin: 5, elevPerKmMax: 20 };
+  }
+
+  // Footings easy / récup / VMA / seuil route : on veut du plat
   if (
     type === "easy" ||
     type === "recovery" ||
@@ -57,7 +64,7 @@ function getRouteConstraints(session, userProfile) {
     return { preference: "shortest", elevPerKmMin: 0, elevPerKmMax: 12 };
   }
 
-  // Long run route : dénivelé modéré
+  // Long run route : dénivelé modéré (pas de recherche de plat strict)
   if (type === "long") {
     return { preference: "recommended", elevPerKmMin: 0, elevPerKmMax: 18 };
   }
@@ -261,7 +268,7 @@ export async function fetchRoute({ session, userProfile, seed }) {
         _targetKm: targetKm,
         _actualKm: actualKm,
         _elevPerKm: Math.round(elevPerKm),
-        _elevTarget: `${elevPerKmMin}-${elevPerKmMax} m/km`,
+        _elevTarget: `${Math.round(elevPerKmMin)}-${Math.round(elevPerKmMax)} m/km`,
         _approximate: false,
         _attempts: attempts.length,
       };
