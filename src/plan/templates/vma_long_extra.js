@@ -10,6 +10,7 @@ export const vma1000ClassiqueTemplate = {
   name: "VMA longue — 1000m",
   intent:
     "Tenir la VMA sur des efforts plus longs. Base de la performance sur 10k et semi.",
+  phasesFit: { base: 0.2, development: 1.0, specific: 0.9, taper: 0.3 },
   params: {
     reps: { min: 3, max: 6 },
   },
@@ -41,6 +42,7 @@ export const vmaPyramideDistanceTemplate = {
   name: "VMA longue — pyramide 200/400/600",
   intent:
     "Développer la VMA en montant-descendant la durée d'effort. Plus dur psychologiquement qu'une série classique.",
+  phasesFit: { base: 0.3, development: 1.0, specific: 0.5, taper: 0.1 },
   params: {
     series: { min: 1, max: 2 },
   },
@@ -77,6 +79,7 @@ export const vma500_1000Template = {
   name: "VMA longue — 500m / 1000m alternés",
   intent:
     "Alterner allures rapides et soutenues pour mieux gérer les changements de rythme.",
+  phasesFit: { base: 0.2, development: 0.9, specific: 1.0, taper: 0.3 },
   params: {
     series: { min: 2, max: 4 },
   },

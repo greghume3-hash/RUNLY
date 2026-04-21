@@ -8,6 +8,7 @@ export const easyProgressiveTemplate = {
   name: "Footing progressif",
   intent:
     "Apprendre à finir plus vite qu'on a commencé. Habitue le corps à l'accélération en fin d'effort.",
+  phasesFit: { base: 0.7, development: 1.0, specific: 1.0, taper: 0.5 },
   params: {
     durationMin: { min: 35, max: 60 },
   },
@@ -33,6 +34,7 @@ export const easyStridesTemplate = {
   name: "Footing avec lignes droites",
   intent:
     "Footing facile + 6 accélérations pour travailler la foulée sans fatigue importante.",
+  phasesFit: { base: 0.9, development: 0.8, specific: 0.7, taper: 1.0 },
   params: {
     durationMin: { min: 30, max: 50 },
   },
@@ -60,6 +62,7 @@ export const recoveryRunTemplate = {
   name: "Décrassage",
   intent:
     "Favoriser la récupération active après une séance dure. Très lent, très court.",
+  phasesFit: { base: 0.6, development: 1.0, specific: 1.0, taper: 0.9 },
   params: {
     durationMin: { min: 20, max: 35 },
   },
@@ -88,6 +91,7 @@ export const fartlekNatureTemplate = {
   name: "Fartlek nature",
   intent:
     "Casser la routine avec une séance libre. Joue avec le terrain, amuse-toi.",
+  phasesFit: { base: 0.8, development: 0.9, specific: 0.4, taper: 0.3 },
   params: {
     durationMin: { min: 30, max: 50 },
   },

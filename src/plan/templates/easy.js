@@ -9,6 +9,7 @@ export const easyStandardTemplate = {
   name: "Footing easy standard",
   intent:
     "Construire ton volume de base. 80 % de tes kilomètres doivent se faire à cette allure.",
+  phasesFit: { base: 1.0, development: 0.8, specific: 0.7, taper: 0.9 },
   // Fourchettes — résolues au moment de générer
   params: {
     durationMin: { min: 30, max: 60 },

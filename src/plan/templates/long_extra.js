@@ -8,6 +8,7 @@ export const longProgressiveTemplate = {
   name: "Sortie longue progressive",
   intent:
     "Apprendre à gérer une allure croissante sur longue durée — clé pour le marathon et au-delà.",
+  phasesFit: { base: 0.3, development: 1.0, specific: 0.9, taper: 0.5 },
   params: {
     durationMin: { min: 60, max: 120 },
   },
@@ -32,6 +33,7 @@ export const longWithMarathonBlockTemplate = {
   name: "Sortie longue avec bloc allure marathon",
   intent:
     "Habituer le corps à l'allure marathon en fin de sortie, quand la fatigue pointe. Séance clé en phase spécifique marathon.",
+  phasesFit: { base: 0.0, development: 0.4, specific: 1.0, taper: 0.2 },
   params: {
     easyMin: { min: 30, max: 60 },
     paceMin: { min: 15, max: 40 },
@@ -70,6 +72,7 @@ export const longTrailTemplate = {
   name: "Sortie longue nature",
   intent:
     "Travailler l'endurance sur terrain varié. Pour les traileurs et pour changer de la route.",
+  phasesFit: { base: 0.7, development: 1.0, specific: 1.0, taper: 0.6 },
   params: {
     durationMin: { min: 75, max: 180 },
   },

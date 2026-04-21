@@ -9,6 +9,7 @@ export const longRunClassicTemplate = {
   name: "Sortie longue — classique",
   intent:
     "Développer ton endurance et ta capacité à courir longtemps. Pilier de tout plan sérieux.",
+  phasesFit: { base: 1.0, development: 0.9, specific: 0.5, taper: 0.8 },
   params: {
     durationMin: { min: 60, max: 120 },
   },

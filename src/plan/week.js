@@ -20,6 +20,27 @@ import {
   maybeFreshSlot,
 } from "./select.js";
 
+// Plafonds de SL selon l'objectif (en minutes). Utilisés pour écrêter
+// dynamiquement la durée max de la sortie longue.
+const LONG_RUN_PEAK_BY_OBJECTIVE = {
+  fitness_restart: 60,
+  weight_loss: 75,
+  maintain: 75,
+  "5k": 75,
+  "10k": 90,
+  half: 120,
+  marathon: 180,
+  trail_45: 180,
+  trail_60: 210,
+  trail_80: 240,
+  trail_120: 270,
+  trail_160: 300,
+};
+
+function longRunPeakMin(profile) {
+  return LONG_RUN_PEAK_BY_OBJECTIVE[profile.objectiveType] ?? 90;
+}
+
 const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const WEEKEND = new Set(["sat", "sun"]);
 
@@ -311,6 +332,9 @@ export function generateWeek({
   weekNumber = 1,
   phase = null,
   history = {},
+  weekInPhase = 1,
+  totalWeeksInPhase = 4,
+  isDeload = false,
 }) {
   // On clone pour ne pas muter l'historique entrant
   let nextHistory = { ...history };
@@ -354,7 +378,17 @@ export function generateWeek({
   }
 
   // 2) Séances "quality"
-  const qualitySlots = effectiveRecipe.filter((s) => s.kind === "quality");
+  // En semaine d'allègement : on retire UNE qualité (la plus "dure" si plusieurs)
+  // → elle se transforme en easy. Objectif : réduire à la fois volume ET charge.
+  let qualitySlots = effectiveRecipe.filter((s) => s.kind === "quality");
+  let deloadDowngradedEasy = 0;
+  if (isDeload && qualitySlots.length > 1) {
+    qualitySlots = qualitySlots.slice(0, qualitySlots.length - 1);
+    deloadDowngradedEasy = 1;
+  } else if (isDeload && qualitySlots.length === 1) {
+    // Plan à 1 seule qualité : on garde mais avec isDeload le générateur
+    // applique déjà un downscale via pickByLevel.
+  }
   for (let i = 0; i < qualitySlots.length; i++) {
     const candidates = runAvailable.filter(
       (d) =>
@@ -413,7 +447,12 @@ export function generateWeek({
   }
 
   // 3) Séances "easy" + "recovery"
-  const easySlots = effectiveRecipe.filter((s) => s.kind === "easy");
+  // + on ajoute les easy issus du downgrade des qualités en deload
+  const baseEasySlots = effectiveRecipe.filter((s) => s.kind === "easy");
+  const easySlots = [
+    ...baseEasySlots,
+    ...Array.from({ length: deloadDowngradedEasy }, () => ({ kind: "easy", family: "easy" })),
+  ];
   const recoverySlots = effectiveRecipe.filter((s) => s.kind === "recovery");
 
   let easyIdx = 0;
@@ -539,6 +578,10 @@ export function generateWeek({
     if (isCommuteDay && commuteClass.level === "moderate") {
       maxMin = Math.round(maxMin * 0.6);
     }
+    // Pour la SL : cap dynamique selon l'objectif (évite SL 120 min sur un 5k)
+    if (p.kind === "long") {
+      maxMin = Math.min(maxMin, longRunPeakMin(profile));
+    }
 
     // Ceinture + bretelles : si c'est une séance bike placée sur un jour de
     // vélotaff (exceptionnel grâce aux filtres), on garantit que la durée
@@ -556,6 +599,9 @@ export function generateWeek({
         week: weekNumber,
         day: d,
         phase,
+        weekInPhase,
+        totalWeeksInPhase,
+        isDeload,
         maxDurationMin: maxMin,
         minDurationMin: minMin,
       },

@@ -8,6 +8,7 @@ export const thresholdTwoBlocksTemplate = {
   name: "Seuil — 2 blocs",
   intent:
     "Améliorer ta capacité à tenir une allure soutenue longtemps. Clé pour la performance sur 10k / semi.",
+  phasesFit: { base: 0.5, development: 1.0, specific: 0.8, taper: 0.4 },
   params: {
     reps: { min: 2, max: 3 },           // 2 ou 3 blocs
     durationMin: { min: 10, max: 15 },  // 10 à 15 min par bloc

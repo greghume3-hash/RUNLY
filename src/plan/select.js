@@ -51,18 +51,30 @@ function isTemplateCompatible(template, { profile, phase, slotKind }) {
   return true;
 }
 
-// --- Score d'un template compte tenu de l'historique ----------------
-function scoreTemplate(template, historyForFamily) {
-  // historyForFamily est un tableau des templateId récemment utilisés,
-  // du plus récent (index 0) au plus ancien.
+// --- Score d'un template compte tenu de l'historique + phase + variation --
+function scoreTemplate(template, historyForFamily, context) {
   const idx = historyForFamily.indexOf(template.id);
-  if (idx === -1) return 100; // jamais utilisé = meilleur score
-  // Plus l'usage est récent, plus le score est bas.
-  // idx 0 = semaine précédente → -50 (quasi exclu sauf dernier recours)
-  // idx 1 = 2 semaines avant → -20
-  // idx 2+ = OK mais pas idéal
+  // Base : 100 si jamais vu, pénalités décroissantes sinon.
   const penaltyByIdx = [-50, -20, -5, 0, 0, 0];
-  return 100 + (penaltyByIdx[idx] ?? 0);
+  let score = idx === -1 ? 100 : 100 + (penaltyByIdx[idx] ?? 0);
+
+  // Bonus phase fit : max +30 pour un template idéalement adapté à la phase
+  const phase = context?.phase ?? "base";
+  const fit = template.phasesFit?.[phase] ?? 0.5;
+  score += fit * 30;
+
+  // Bonus alternance court/long pour les intervalles (semaine paire → long,
+  // impaire → court). Ne s'applique qu'aux familles d'intervalles.
+  const wk = context?.week ?? 1;
+  const isEvenWeek = wk % 2 === 0;
+  if (template.family === "vma_long" || template.family === "vma_short") {
+    const isShort = template.family === "vma_short";
+    if ((isEvenWeek && !isShort) || (!isEvenWeek && isShort)) {
+      score += 8; // préférence alternée
+    }
+  }
+
+  return score;
 }
 
 // --- Sélecteur principal --------------------------------------------
@@ -107,7 +119,7 @@ export function selectTemplate(family, profile, context, history = {}) {
 
   // Score chaque template, puis trie
   const scored = pool
-    .map((t) => ({ template: t, score: scoreTemplate(t, histForFamily) }))
+    .map((t) => ({ template: t, score: scoreTemplate(t, histForFamily, context) }))
     .sort((a, b) => b.score - a.score);
 
   // On prend le meilleur score, avec un peu d'aléa entre équivalents pour
@@ -173,7 +185,9 @@ export function maybeFreshSlot({ profile, weekNumber, slotIndex, history }) {
   // On combine empreinte profil + week + slotIndex pour avoir une cadence
   // déterministe propre à chaque coureur.
   const key = `fresh|${profileFingerprint(profile)}|${weekNumber}|${slotIndex}`;
-  const r = hashString(key) % 8;
+  // 1 slot easy sur 5 devient "fresh" (fartlek, strides, etc.) pour casser
+  // la routine et maintenir l'engagement psychologique.
+  const r = hashString(key) % 5;
   if (r !== 0) return null;
   // Choix entre strides et fartlek nature, en évitant le plus récent
   const freshIds = ["easy-strides", "easy-fartlek-nature"];

@@ -9,6 +9,7 @@ export const thresholdContinuTemplate = {
   name: "Seuil — tempo continu",
   intent:
     "Améliorer la capacité à tenir une allure soutenue sans coupure. Référence pour le semi-marathon.",
+  phasesFit: { base: 0.1, development: 0.7, specific: 1.0, taper: 0.5 },
   params: {
     durationMin: { min: 20, max: 40 },
   },
@@ -39,6 +40,7 @@ export const thresholdFourBlocksTemplate = {
   name: "Seuil — 4 × 8 min",
   intent:
     "Travailler le seuil par fractions plus courtes. Plus accessible qu'un tempo continu.",
+  phasesFit: { base: 0.6, development: 1.0, specific: 0.6, taper: 0.9 },
   params: {
     reps: { min: 3, max: 5 },
   },

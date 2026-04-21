@@ -10,6 +10,7 @@ export const specificMarathonTemplate = {
   name: "Sortie avec bloc allure marathon",
   intent:
     "Habituer le corps à l'allure marathon dans la fatigue. Séance-clé en phase spécifique.",
+  phasesFit: { base: 0.0, development: 0.3, specific: 1.0, taper: 0.3 },
   params: {
     easyWarmupMin: { min: 20, max: 40 },
     paceBlockMin: { min: 20, max: 50 },
@@ -49,6 +50,7 @@ export const specific10kTemplate = {
   name: "Bloc allure 10k",
   intent:
     "Simuler l'effort et l'allure de ton objectif 10k. À faire en fin de préparation.",
+  phasesFit: { base: 0.0, development: 0.3, specific: 1.0, taper: 0.3 },
   params: {
     reps: { min: 2, max: 4 },
     distanceKm: { min: 1.5, max: 3 },

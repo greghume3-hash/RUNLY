@@ -58,6 +58,12 @@ import {
   brickThresholdIndoorTemplate,
 } from "./brick.js";
 
+import {
+  testVma3000Template,
+  simulationRaceTemplate,
+  taperActivationTemplate,
+} from "./events.js";
+
 import { walkRun60_120Template } from "./walk_run.js";
 
 export const ALL_TEMPLATES = [
@@ -100,6 +106,10 @@ export const ALL_TEMPLATES = [
   // hybrides running + HT / tapis (Niveau 2+ — brick sessions)
   brickRecoveryTemplate,
   brickThresholdIndoorTemplate,
+  // événements (injectés par positions fixes, pas via rotation normale)
+  testVma3000Template,
+  simulationRaceTemplate,
+  taperActivationTemplate,
   // walk-run
   walkRun60_120Template,
 ];

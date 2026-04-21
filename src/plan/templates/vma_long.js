@@ -9,6 +9,7 @@ export const vma400ClassiqueTemplate = {
   name: "VMA longue — 400m",
   intent:
     "Développer la VMA et l'économie de course à haute intensité. C'est dur mais court.",
+  phasesFit: { base: 0.5, development: 1.0, specific: 0.6, taper: 0.2 },
   params: {
     reps: { min: 6, max: 10 },
   },

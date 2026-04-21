@@ -11,6 +11,8 @@ export const vma3030ClassiqueTemplate = {
   name: "VMA courte — 30-30",
   intent:
     "Développer la VMA à dose concentrée. Les efforts courts protègent des blessures tout en stimulant l'économie de course.",
+  // Score de pertinence par phase (0 à 1) — utilisé par selectTemplate
+  phasesFit: { base: 1.0, development: 0.7, specific: 0.2, taper: 0.1 },
   params: {
     reps: { min: 10, max: 20 },
   },
@@ -44,6 +46,7 @@ export const vmaPyramideTemplate = {
   name: "VMA courte — pyramide",
   intent:
     "Travailler la VMA sur différentes durées d'effort. La séquence montante-descendante développe la lucidité tactique et l'endurance à vitesse élevée.",
+  phasesFit: { base: 0.8, development: 1.0, specific: 0.3, taper: 0.0 },
   params: {
     series: { min: 2, max: 3 },
   },
@@ -84,6 +87,7 @@ export const hillsCourtsTemplate = {
   name: "Côtes courtes",
   intent:
     "Développer la puissance et la force spécifique à la course en côte. Pour les débutants : remplace une VMA classique, moins traumatisant.",
+  phasesFit: { base: 1.0, development: 0.6, specific: 0.2, taper: 0.0 },
   params: {
     reps: { min: 6, max: 12 },
   },

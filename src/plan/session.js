@@ -58,21 +58,50 @@ const DIFFICULTY_BY_TYPE = {
 // Helpers de résolution de paramètres
 // ---------------------------------------------------------------------
 
-// Pick un nombre dans [min, max] selon le niveau du coureur.
-// Débutant → bas de fourchette ; confirmé → haut ; aligné sur 1 cran.
-function pickByLevel({ min, max }, profile) {
+// Niveau du coureur en ratio [0, 1] : débutant=0, confirmé vol élevé=1.
+function levelToRatio(profile) {
   const experience = profile.experience;
   const vol = profile.weeklyVolumeKm ?? 0;
-  let t = 0.4; // par défaut : bas du milieu
-  if (experience === "none") t = 0;
-  else if (experience === "lt6m") t = 0.2;
-  else if (experience === "6m-2y") t = vol >= 30 ? 0.55 : 0.4;
-  else if (experience === "2y+") t = vol >= 40 ? 0.8 : 0.6;
-  // Snap à l'entier si c'est un nombre de reps (min/max sont entiers)
-  const raw = min + (max - min) * t;
+  if (experience === "none") return 0;
+  if (experience === "lt6m") return 0.2;
+  if (experience === "6m-2y") return vol >= 30 ? 0.55 : 0.4;
+  if (experience === "2y+") return vol >= 40 ? 0.8 : 0.6;
+  return 0.4;
+}
+
+// Pick un nombre dans [min, max] selon :
+//   - le niveau du coureur (ratio fixe par expérience + volume)
+//   - la progression dans la phase (weekInPhase / totalWeeksInPhase)
+//
+// Formule : t = 0.5 × levelRatio + 0.5 × progressRatio
+// → début de phase pour débutant : t=0.1 → min
+// → fin de phase pour confirmé : t=0.9 → max
+// → séance 1 de phase (progress=0) ignore le progrès et laisse juste le niveau
+// → deload week : progressRatio neutralisé (voir `deloadDownscale`)
+function pickByLevel({ min, max }, profile, context = {}) {
+  const levelT = levelToRatio(profile);
+  const progressT = computeProgressRatio(context);
+  const t = Math.max(0, Math.min(1, 0.5 * levelT + 0.5 * progressT));
+
+  let raw = min + (max - min) * t;
+
+  // En deload, on scale down (~75 % du param résolu) — moins de reps/durée
+  if (context.isDeload) raw = raw * 0.75;
+
   return Number.isInteger(min) && Number.isInteger(max)
-    ? Math.round(raw)
+    ? Math.max(min, Math.round(raw))
     : raw;
+}
+
+// Progression dans la phase : 0 en semaine 1, 1 en dernière semaine.
+// On ne monte pas linéairement jusqu'à 1 : on plafonne à 0.9 pour éviter
+// que la dernière semaine de chaque phase soit trop dure (piège d'accumulation).
+function computeProgressRatio(context) {
+  const w = context.weekInPhase ?? 1;
+  const total = context.totalWeeksInPhase ?? 1;
+  if (total <= 1) return 0.3;
+  const raw = (w - 1) / (total - 1);
+  return Math.max(0, Math.min(0.9, raw));
 }
 
 // Durée approximative d'un bloc courant à une allure donnée (en min).
@@ -557,12 +586,12 @@ function staticMarginFromBlockSpecs(blockSpecs) {
   return m;
 }
 
-// Résout { reps: { min: 6, max: 10 } } → { reps: 8 } selon niveau
+// Résout { reps: { min: 6, max: 10 } } → { reps: 8 } selon niveau + progression.
 function resolveTemplateParams(paramSpecs, profile, context, template) {
   const out = {};
   for (const [key, spec] of Object.entries(paramSpecs)) {
     if (spec && typeof spec === "object" && "min" in spec && "max" in spec) {
-      out[key] = pickByLevel(spec, profile);
+      out[key] = pickByLevel(spec, profile, context);
     } else {
       out[key] = spec; // valeur fixe
     }

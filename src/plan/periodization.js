@@ -295,6 +295,21 @@ export function generatePlan({ profile, paces, startDate = new Date() }) {
     phases
   );
 
+  // Pour chaque semaine, on pré-calcule son rang DANS sa phase
+  // (ex: dev semaine 3 sur 5 → weekInPhase=3, totalWeeksInPhase=5).
+  const phaseForWeek = [];
+  const weekInPhaseArr = [];
+  const totalWeeksInPhaseArr = [];
+  let cursor = 0;
+  for (const p of phases) {
+    for (let i = 0; i < p.weeks; i++) {
+      phaseForWeek.push(p.name);
+      weekInPhaseArr.push(i + 1);
+      totalWeeksInPhaseArr.push(p.weeks);
+    }
+    cursor += p.weeks;
+  }
+
   // Génération des N semaines en chainant l'historique (pour la rotation)
   const weeks = [];
   let history = {};
@@ -305,6 +320,9 @@ export function generatePlan({ profile, paces, startDate = new Date() }) {
       paces,
       weekNumber: w + 1,
       phase: v.phase,
+      weekInPhase: weekInPhaseArr[w],
+      totalWeeksInPhase: totalWeeksInPhaseArr[w],
+      isDeload: v.isDeload,
       history,
     });
     // Ajoute les métadonnées de périodisation à la semaine
