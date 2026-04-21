@@ -41,6 +41,48 @@ function longRunPeakMin(profile) {
   return LONG_RUN_PEAK_BY_OBJECTIVE[profile.objectiveType] ?? 90;
 }
 
+// --- Séance "événement" si la semaine tombe à une position clé ---
+// Retourne l'id du template événement à FORCER pour la première qualité
+// de la semaine, ou null si aucun événement.
+function getEventTemplateForWeek(phase, weekInPhase, totalWeeksInPhase, profile) {
+  // Test VMA 3000m : 1ère semaine de la phase développement
+  // (permet de recaler les allures après la phase base).
+  if (phase === "development" && weekInPhase === 1) {
+    return "test-vma-3000";
+  }
+  // Simulation course : au milieu de la phase spécifique.
+  // Seulement pertinent pour les objectifs chiffrés (pas "se remettre au sport").
+  const isRacey = ["road", "trail"].includes(profile.objectiveCategory);
+  if (phase === "specific" && isRacey) {
+    const mid = Math.max(1, Math.ceil(totalWeeksInPhase / 2));
+    if (weekInPhase === mid) return "simulation-race";
+  }
+  // Activation taper : 1ère semaine du taper (rappel VMA très léger).
+  if (phase === "taper" && weekInPhase === 1) {
+    return "taper-activation";
+  }
+  return null;
+}
+
+// --- Bloc à allure cible dans la SL (phase spécifique uniquement) ---
+// On injecte un bloc "specific-pace" AU MILIEU d'une SL classique en phase
+// spécifique. Durée du bloc = progression : fin de phase → bloc plus long.
+function shouldInsertRacePaceInLong(phase, weekInPhase, totalWeeksInPhase, profile) {
+  if (phase !== "specific") return null;
+  if (!["road", "trail"].includes(profile.objectiveCategory)) return null;
+  // On évite la dernière semaine de spé (taper commence juste après)
+  if (weekInPhase > totalWeeksInPhase - 1) return null;
+
+  const dist = profile.objectiveDistanceKm ?? 0;
+  const paceContext = dist <= 10 ? "10k_pace"
+    : dist <= 21.1 ? "semi_pace"
+    : "marathon_pace";
+  // Durée bloc qui progresse (20 min S1 → 40 min fin spé)
+  const t = (weekInPhase - 1) / Math.max(1, totalWeeksInPhase - 1);
+  const blockMin = Math.round(20 + 20 * Math.min(1, t));
+  return { paceContext, blockMin };
+}
+
 const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const WEEKEND = new Set(["sat", "sun"]);
 
@@ -374,7 +416,15 @@ export function generateWeek({
   const placements = {}; // day → { kind, family, template, session? }
 
   if (longRunDay) {
-    placements[longRunDay] = { kind: "long", family: "long" };
+    // En phase spécifique, on prépare l'injection d'un bloc allure cible
+    const racePaceInsert = shouldInsertRacePaceInLong(
+      phase, weekInPhase, totalWeeksInPhase, profile
+    );
+    placements[longRunDay] = {
+      kind: "long",
+      family: "long",
+      _racePaceInsert: racePaceInsert,
+    };
   }
 
   // 2) Séances "quality"
@@ -389,6 +439,12 @@ export function generateWeek({
     // Plan à 1 seule qualité : on garde mais avec isDeload le générateur
     // applique déjà un downscale via pickByLevel.
   }
+  // Événement forcé pour la 1ère qualité de la semaine (test VMA, simulation,
+  // activation). Remplace le template normal si la position dans la phase matche.
+  const eventTplId = isDeload
+    ? null
+    : getEventTemplateForWeek(phase, weekInPhase, totalWeeksInPhase, profile);
+
   for (let i = 0; i < qualitySlots.length; i++) {
     const candidates = runAvailable.filter(
       (d) =>
@@ -410,16 +466,21 @@ export function generateWeek({
     const hardDays = Object.entries(placements)
       .filter(([, p]) => p.kind === "quality" || p.kind === "long")
       .map(([d]) => d);
-    // Anti-cumul (Niveau 3) : jours de vélotaff modéré/lourd = jambes
-    // sollicitées. On préfère placer la qualité le plus loin possible.
     const moderateLoadDays =
       commuteClass.level === "moderate" || commuteClass.level === "heavy"
         ? [...commute]
         : [];
     const day = pickBestQualityDay(candidates, hardDays, moderateLoadDays);
+
+    // 1ère qualité de la semaine + événement détecté → on force le template
+    const isFirstQuality = i === 0;
+    const forcedEvent = isFirstQuality && eventTplId ? eventTplId : null;
+
     placements[day] = {
       kind: "quality",
       family: pickQualityFamily(i, { phase, objectiveCategory: profile.objectiveCategory }),
+      _forcedTemplateId: forcedEvent,
+      _isEvent: !!forcedEvent,
     };
   }
 
@@ -606,6 +667,58 @@ export function generateWeek({
         minDurationMin: minMin,
       },
     });
+
+    // Injection d'un bloc à allure course dans la SL (phase spécifique).
+    // On remplace une partie du bloc "run" principal par un bloc continu
+    // à allure course (marathon/semi/10k selon objectif).
+    if (p._racePaceInsert && p.kind === "long" && session.blocks?.length >= 1) {
+      const insert = p._racePaceInsert;
+      const runBlock = session.blocks[0];
+      const totalRunMin = runBlock?.durationMin ?? 0;
+      if (totalRunMin > insert.blockMin + 20) {
+        const remainingMin = totalRunMin - insert.blockMin;
+        const easyMin = Math.round(remainingMin * 0.65);
+        const cooldownMin = remainingMin - easyMin;
+        const target = paces.getTargetPace(insert.paceContext);
+        const zoneKey = insert.paceContext === "marathon_pace" ? "Z3" : "Z4";
+        const paceLabelByCtx = {
+          marathon_pace: "allure marathon",
+          semi_pace: "allure semi",
+          "10k_pace": "allure 10k",
+        };
+        const paceLabel = paceLabelByCtx[insert.paceContext] ?? insert.paceContext;
+        // On recompose les blocs : easy → allure course → retour au calme
+        session.blocks = [
+          { ...runBlock, durationMin: easyMin, label: "Base en endurance" },
+          {
+            type: "tempo",
+            label: `Bloc ${paceLabel}`,
+            repetitions: 1,
+            work: {
+              durationMin: insert.blockMin,
+              zone: zoneKey,
+              zoneShort: paces.zones[zoneKey].short,
+              paceTarget: { value: target.pace, unit: "min/km" },
+              speedTarget: { value: target.kmh, unit: "km/h" },
+            },
+            recovery: null,
+            description: `${insert.blockMin} min à ${target.pace}/km (${paceLabel}) — simulation.`,
+            tips: "Allure régulière, comme le jour J. Ressens-la sous fatigue.",
+          },
+          {
+            ...runBlock,
+            durationMin: cooldownMin,
+            label: "Retour au calme",
+          },
+        ];
+        // Recalcul durée totale
+        session.totalDurationMin = easyMin + insert.blockMin + cooldownMin;
+        // Marque pédagogique : mettre à jour l'intent
+        session.intent =
+          `SL avec bloc ${paceLabel} en milieu de séance. Simulation précieuse : tenir l'allure course sous la fatigue accumulée.`;
+      }
+    }
+
     days[d] = {
       type: "session",
       commute: commute.has(d),
@@ -614,6 +727,7 @@ export function generateWeek({
           ? { level: "moderate", equivKm: commuteClass.equivKm }
           : null,
       downgraded: p._downgradedFromQuality || false,
+      isEvent: p._isEvent || false,
       session,
     };
   }
