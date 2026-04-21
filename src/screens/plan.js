@@ -571,7 +571,7 @@ function renderRouteBlock(session) {
 
   const hasLocation = profile.locationLat != null && profile.locationLng != null;
   const mapId = `map-${session.id}`;
-  const estimatedKm = estimateRouteDistance(session);
+  const estimatedKm = estimateRouteDistance(session, profile);
 
   return `
     <div class="route-block">

@@ -43,8 +43,9 @@ export async function handler(event) {
     distanceKm,
     profile = "foot-walking",
     seed,
-    // Nouveau : préférence de trajet (shortest = plus plat en général)
     preference = "recommended",
+    // Niveau 2 : nombre de waypoints ORS (2=boucle serrée, 5=sinueuse)
+    points = 3,
   } = payload;
 
   // Validation basique
@@ -87,8 +88,8 @@ export async function handler(event) {
     options: {
       round_trip: {
         length: Math.round(distanceKm * 1000), // mètres
-        // 3 waypoints = boucle plus serrée, distance plus proche de la cible.
-        points: 3,
+        // Nb de waypoints adaptatif selon la distance (voir route.js côté frontend)
+        points: Math.max(2, Math.min(5, Math.round(points))),
         seed: typeof seed === "number" ? seed : Math.floor(Math.random() * 1e6),
       },
     },

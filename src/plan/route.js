@@ -80,31 +80,61 @@ function getRouteConstraints(session, userProfile) {
 // Distance cible d'un parcours pour une séance donnée
 // ---------------------------------------------------------------------
 // On itère sur les blocs pour calculer précisément la distance parcourue,
-// chaque bloc avec SA vitesse cible propre (pas une moyenne forfaitaire).
-export function estimateRouteDistance(session) {
+// chaque bloc avec SA vitesse cible propre. La vitesse dépend aussi du
+// contexte (trail = plus lent à cause du terrain et du D+).
+export function estimateRouteDistance(session, userProfile = {}) {
   if (session.totalDistanceKm) return Math.round(session.totalDistanceKm * 10) / 10;
+  const isTrail = userProfile.objectiveCategory === "trail";
 
   // Fallback sur le type si aucun bloc lisible
   if (!Array.isArray(session.blocks) || session.blocks.length === 0) {
-    const avgKmh = { recovery: 9, easy: 10.5, cross: 20, long: 10, tempo: 12, intervals: 10.5, hills: 9.5 }[session.type] ?? 10;
+    const avgKmh = avgSpeedForType(session.type, isTrail);
     return Math.round((session.totalDurationMin || 45) * avgKmh / 60 * 10) / 10;
   }
 
   let totalKm = 0;
   for (const b of session.blocks) {
-    totalKm += distanceForBlock(b);
+    totalKm += distanceForBlock(b, isTrail);
   }
   return Math.round(totalKm * 10) / 10;
 }
 
+// Vitesse moyenne réelle (km/h) pour un type de séance, en tenant compte
+// du terrain. Les valeurs "trail" sont calibrées sur l'observation qu'un
+// traileur fait 7-8 km/h sur sortie longue (vs 9-10 sur route) à cause
+// du D+, du terrain technique et des pauses éventuelles.
+function avgSpeedForType(type, isTrail = false) {
+  if (isTrail) {
+    return {
+      recovery: 7,
+      easy: 8,
+      long: 7.5,
+      tempo: 10,
+      intervals: 9,
+      hills: 7,
+      cross: 20,
+    }[type] ?? 8;
+  }
+  return {
+    recovery: 9,
+    easy: 10,
+    long: 9.5, // plus bas que l'allure EF pure : inclut les "pauses" inévitables
+    tempo: 12,
+    intervals: 10.5,
+    hills: 9.5,
+    cross: 20,
+  }[type] ?? 10;
+}
+
 // Calcule la distance d'un bloc selon sa nature.
-function distanceForBlock(b) {
+// Le flag isTrail atténue les vitesses de "run" standard (~-15 %).
+function distanceForBlock(b, isTrail = false) {
+  const trailFactor = isTrail ? 0.82 : 1.0;
   // Warmup / cooldown / easy / recovery : durée × vitesse du bloc
   if (b.type === "warmup" || b.type === "cooldown" || b.type === "easy" || b.type === "recovery") {
     const kmh = b.speedTarget?.value ?? b.speedTarget?.min ?? 10;
-    // Si speedTarget est un string (ex: "11 → 12"), on prend le milieu
     const speed = typeof kmh === "string" ? averageFromString(kmh) : Number(kmh);
-    return ((b.durationMin || 0) * speed) / 60;
+    return ((b.durationMin || 0) * speed * trailFactor) / 60;
   }
 
   // Drills / lignes droites : ~600m pour 6 lignes de 100m + marche
@@ -196,13 +226,30 @@ function averageFromString(s) {
 // ---------------------------------------------------------------------
 // Appel principal
 // ---------------------------------------------------------------------
-// Tolérance ±10 % sur la distance + cible de D+ (m/km) selon la séance.
+// Tolérance adaptative (plus large sur les longues distances) + cible de D+.
+// ORS round_trip a tendance à surestimer la distance demandée de 10-15 %.
+// Pour compenser : on envoie à ORS une distance REQUISE = target × 0.88.
+// Le parcours renvoyé tombe alors proche de la target réelle.
+//
 // On essaie jusqu'à 4 fois avec des seeds différents. Chaque parcours est
 // scoré en combinant (écart distance + écart D+). On retourne :
 //   - le 1er parcours qui rentre dans les 2 tolérances, OU
 //   - celui avec le meilleur score sinon (flag `_approximate`).
-const TOLERANCE = 0.10;
 const MAX_ATTEMPTS = 4;
+const ORS_DISTANCE_CORRECTION = 0.88; // demande 12 % de moins à ORS
+
+// Tolérance en fraction de la distance cible, adaptée à la longueur.
+function toleranceFor(targetKm) {
+  if (targetKm < 6) return 0.10;   // courte : strict
+  if (targetKm < 15) return 0.13;  // moyenne : standard
+  return 0.15;                      // longue : tolérant
+}
+// Nb de waypoints ORS — moins = boucle plus serrée et distance plus fidèle
+function pointsFor(targetKm) {
+  if (targetKm > 12) return 2;
+  if (targetKm > 6) return 3;
+  return 4;
+}
 
 export async function fetchRoute({ session, userProfile, seed }) {
   const profile = pickOrsProfile(session, userProfile);
@@ -211,9 +258,13 @@ export async function fetchRoute({ session, userProfile, seed }) {
     throw new Error("no_location");
   }
 
-  const targetKm = estimateRouteDistance(session);
-  const minKm = targetKm * (1 - TOLERANCE);
-  const maxKm = targetKm * (1 + TOLERANCE);
+  const targetKm = estimateRouteDistance(session, userProfile);
+  const tolerance = toleranceFor(targetKm);
+  const minKm = targetKm * (1 - tolerance);
+  const maxKm = targetKm * (1 + tolerance);
+  // On demande moins que la cible à ORS pour compenser le biais round_trip
+  const orsRequestedKm = targetKm * ORS_DISTANCE_CORRECTION;
+  const orsPoints = pointsFor(targetKm);
 
   const { preference, elevPerKmMin, elevPerKmMax } = getRouteConstraints(
     session,
@@ -239,10 +290,11 @@ export async function fetchRoute({ session, userProfile, seed }) {
       body: JSON.stringify({
         lat: userProfile.locationLat,
         lng: userProfile.locationLng,
-        distanceKm: targetKm,
+        distanceKm: orsRequestedKm, // corrigé (-12 %) pour compenser le biais ORS
         profile,
         preference,
         seed: attemptSeed,
+        points: orsPoints,
       }),
     });
 
