@@ -22,8 +22,8 @@ import {
   geojsonToGpx,
   shareGpx,
   downloadGpx,
-  sendToStrava,
 } from "../plan/gpx.js";
+import { sessionToTcxWorkout, sendToGarminWatch } from "../plan/tcx.js";
 
 const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_SHORT = { mon: "L", tue: "M", wed: "M", thu: "J", fri: "V", sat: "S", sun: "D" };
@@ -390,6 +390,8 @@ function renderSessionModal({ plan }) {
 
         ${renderTips(s.tips)}
 
+        ${renderGarminExport(s)}
+
         ${renderNoteBlock(week.weekNumber, day, completion)}
 
         <div class="modal__actions">
@@ -600,16 +602,37 @@ function renderRouteBlock(session) {
         </button>
       </div>
       <div class="route-export" id="route-export" hidden>
-        <button class="btn btn--strava" id="strava-btn" type="button">
-          🔴 Envoyer sur Strava
-        </button>
         <button class="btn btn--outline" id="download-gpx-btn" type="button">
-          📥 Télécharger GPX (Garmin, Komoot…)
+          📥 Télécharger le tracé (GPX)
         </button>
-        <p class="muted small" id="strava-hint" style="margin:4px 0 0 0">
-          Le GPX est téléchargé et Strava s'ouvre — glisse le fichier dans la fenêtre d'upload.
+        <p class="muted small" style="margin:4px 0 0 0">
+          GPX = juste le tracé du parcours (à importer dans Garmin Connect ou Strava).
         </p>
       </div>
+    </div>
+  `;
+}
+
+// Bloc "Envoyer sur ma montre" — génère un workout Garmin TCX avec les
+// blocs structurés (warmup/intervalles/récups/cooldown + allures cibles).
+// Une fois importé dans Garmin Connect, la montre guide l'utilisateur
+// pendant la séance (bippe aux transitions, affiche l'allure cible).
+function renderGarminExport(session) {
+  // Pas pertinent pour le vélotaff (pas de structure) ni rest
+  if (session.family === "commute") return "";
+  return `
+    <div class="garmin-export">
+      <div class="garmin-export__header">
+        <strong>⌚ Envoyer sur ma montre</strong>
+      </div>
+      <button class="btn btn--garmin" id="garmin-send-btn" type="button">
+        Générer le workout Garmin (TCX)
+      </button>
+      <p class="muted small" id="garmin-hint">
+        Télécharge le fichier TCX puis importe-le dans Garmin Connect (onglet
+        <em>Entraînements</em>). La montre le synchronisera à la prochaine connexion
+        et te guidera pendant la séance (bips aux transitions, allures cibles affichées).
+      </p>
     </div>
   `;
 }
@@ -925,20 +948,17 @@ function attachListeners(root, ctx) {
       if (!gpx) return;
       downloadGpx(gpx, gpxFilename());
     });
-    root.querySelector("#strava-btn")?.addEventListener("click", async () => {
-      const gpx = buildGpxString();
-      if (!gpx) return;
-      try {
-        const result = await sendToStrava(gpx, gpxFilename());
-        const hint = root.querySelector("#strava-hint");
-        if (hint) {
-          hint.textContent =
-            result === "shared"
-              ? "✓ Partagé. Si tu as choisi Strava, la route est en cours d'import."
-              : "✓ GPX téléchargé. Strava s'ouvre — glisse le fichier dans la fenêtre.";
-        }
-      } catch (e) {
-        console.log("[Runly] envoi Strava échoué:", e);
+
+    // Génère un workout Garmin TCX à partir des blocs de la séance
+    root.querySelector("#garmin-send-btn")?.addEventListener("click", () => {
+      const s = dayData.session;
+      const tcx = sessionToTcxWorkout(s);
+      const filename = `runly-${s.templateId || "workout"}-s${week.weekNumber}.tcx`.toLowerCase();
+      sendToGarminWatch(tcx, filename);
+      const hint = root.querySelector("#garmin-hint");
+      if (hint) {
+        hint.innerHTML =
+          "✓ Fichier TCX téléchargé. Sur Garmin Connect (onglet ouvert), clique <strong>Importer</strong> et sélectionne le fichier.";
       }
     });
 

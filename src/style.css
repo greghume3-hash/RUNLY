@@ -197,10 +197,10 @@ body {
   align-self: flex-start;
 }
 
-.btn--strava {
-  background: #fc4c02;
+.btn--garmin {
+  background: #000;
   color: #fff;
-  border: 1px solid #fc4c02;
+  border: 1px solid #000;
   min-height: 44px;
   padding: 10px 14px;
   font-size: 14px;
@@ -213,10 +213,28 @@ body {
   border-radius: var(--radius);
   font-family: inherit;
   transition: background-color 0.15s ease;
+  width: 100%;
 }
 
-.btn--strava:hover {
-  background: #e04500;
+.btn--garmin:hover {
+  background: #222;
+}
+
+.garmin-export {
+  margin: 16px 0;
+  padding: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.garmin-export__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .btn--outline:hover {
