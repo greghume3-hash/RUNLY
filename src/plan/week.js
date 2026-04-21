@@ -398,6 +398,9 @@ export function generateWeek({
   //   - moderate : footing raccourci (60 %)
   //   - heavy    : pas de course, repos actif
   const commuteClass = classifyDailyCommute(profile, phase);
+  // Charge équivalente d'une journée de vélotaff (hoisted pour pouvoir
+  // être utilisé plus haut dans la construction des jours "commute").
+  const commuteLoadPerDay = estimateCommuteLoad(profile, phase);
   // Jours de vélotaff "heavy" : exclus du placement course
   const heavyCommuteDays = new Set(
     commuteClass.level === "heavy" ? [...commute] : []
@@ -574,13 +577,67 @@ export function generateWeek({
   for (const d of DAYS_ORDER) {
     if (!placements[d]) {
       const isCommute = commute.has(d);
-      days[d] = {
-        type: "rest",
-        commute: isCommute,
-        // Si le vélotaff est "heavy", on indique que c'est LA séance du jour
-        commuteIsSession: isCommute && commuteClass.level === "heavy",
-        commuteClass: isCommute ? commuteClass : null,
-      };
+      // Vélotaff sans séance course → on le traite comme une VRAIE séance
+      // cross (visible, cochable, comptabilisée). Plus de "rest gris".
+      if (isCommute) {
+        const durMin = estimateCommuteDurationMin(profile);
+        const km = (profile.commuteDistanceKm ?? 0) * 2;
+        const elev = (profile.commuteElevationM ?? (profile.commuteDistanceKm ?? 0) * 10) * 2;
+        const intensityLabel = {
+          chill: "peinard",
+          normal: "normal",
+          sporty: "sportif",
+        }[profile.commuteIntensity ?? "normal"];
+        // Session synthétique "commute"
+        const commuteSession = {
+          id: `w${weekNumber}_${d}_commute`,
+          week: weekNumber,
+          day: d,
+          date: null,
+          type: "cross",
+          family: "commute",
+          templateId: "commute-daily",
+          phase,
+          intent: `Ton vélotaff du jour (${km} km A/R, +${elev} m D+, intensité ${intensityLabel}). Compte comme une séance cross — conserve ton effort habituel, pas besoin d'en rajouter.`,
+          totalDurationMin: durMin,
+          totalDistanceKm: km,
+          estimatedLoad: commuteLoadPerDay,
+          difficulty:
+            commuteClass.level === "heavy"
+              ? "hard"
+              : commuteClass.level === "moderate"
+              ? "moderate"
+              : "easy",
+          blocks: [
+            {
+              type: "cross",
+              label: "Vélotaff A/R",
+              durationMin: durMin,
+              description: `${km} km aller-retour · ${elev} m D+ cumulé · ~${commuteClass.equivKm} km équivalent course.`,
+            },
+          ],
+          tips: {
+            before: null,
+            during:
+              "Reste sur ton allure habituelle. Pas de sprint ni de détour en plus — c'est une charge de fond.",
+            after: null,
+          },
+          indoorAlternative: null,
+          status: "planned",
+          completion: null,
+        };
+        days[d] = {
+          type: "session",
+          commute: true,
+          commuteAdaptation: null,
+          downgraded: false,
+          isEvent: false,
+          session: commuteSession,
+        };
+        continue;
+      }
+      // Sinon : vrai repos
+      days[d] = { type: "rest", commute: false };
       continue;
     }
     const p = placements[d];
@@ -743,8 +800,7 @@ export function generateWeek({
     0
   );
 
-  // Charge vélotaff : nb de jours × charge unitaire estimée
-  const commuteLoadPerDay = estimateCommuteLoad(profile, phase);
+  // Charge vélotaff (hors jours où le vélotaff est déjà compté comme séance course adaptée)
   const commuteLoad = commuteLoadPerDay * commute.size;
 
   return {

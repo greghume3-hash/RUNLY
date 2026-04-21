@@ -41,6 +41,9 @@ const FAMILY_COLORS = {
   easy: "#16a34a",
   recovery: "#0ea5e9",
   cross: "#6b7280",
+  bike: "#0ea5e9",
+  brick: "#8b5cf6",
+  commute: "#ca8a04", // jaune/ocre pour le vélotaff (bien visible)
   walk_run: "#14b8a6",
 };
 
@@ -54,6 +57,9 @@ const FAMILY_LABELS = {
   easy: "Footing",
   recovery: "Récupération",
   cross: "Cross-training",
+  bike: "Vélo",
+  brick: "Course + vélo",
+  commute: "Vélotaff",
   walk_run: "Marche-course",
 };
 
