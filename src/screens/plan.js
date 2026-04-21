@@ -380,6 +380,8 @@ function renderSessionModal({ plan }) {
 
         <p class="intent">${escapeHtml(s.intent)}</p>
 
+        ${renderGarminExport(s)}
+
         ${s.family === "bike" ? renderBikeExecutionChooser(s) : ""}
 
         ${renderRouteBlock(s)}
@@ -389,8 +391,6 @@ function renderSessionModal({ plan }) {
         </ol>
 
         ${renderTips(s.tips)}
-
-        ${renderGarminExport(s)}
 
         ${renderNoteBlock(week.weekNumber, day, completion)}
 
@@ -617,21 +617,40 @@ function renderRouteBlock(session) {
 // blocs structurés (warmup/intervalles/récups/cooldown + allures cibles).
 // Une fois importé dans Garmin Connect, la montre guide l'utilisateur
 // pendant la séance (bippe aux transitions, affiche l'allure cible).
+//
+// Disponible pour TOUTES les sessions sauf :
+//   - commute (vélotaff, pas de structure à guider)
+//   - walk_run (format alternance marche/course, mal géré par Garmin)
 function renderGarminExport(session) {
-  // Pas pertinent pour le vélotaff (pas de structure) ni rest
   if (session.family === "commute") return "";
+  if (session.family === "walk_run") return "";
+
+  // Message adapté selon le type de séance
+  const isStructured =
+    session.family?.startsWith("vma") ||
+    session.family === "threshold" ||
+    session.family === "hills" ||
+    session.family === "specific_pace";
+  const hint = isStructured
+    ? "Les blocs (échauffement / intervalles / récup / retour au calme) et les allures cibles seront transmis à ta montre. Elle te guidera en temps réel : bips aux transitions, allure cible affichée."
+    : session.family === "long"
+    ? "Ta montre te rappellera la durée cible et l'allure EF à tenir. Idéal pour ne pas partir trop vite."
+    : session.family === "bike" || session.family === "brick"
+    ? "Workout vélo/hybride importable dans Garmin Connect — s'affichera sur ta montre ou ton Edge."
+    : "Ta montre t'indiquera la durée cible et l'allure confortable à maintenir.";
+
   return `
     <div class="garmin-export">
       <div class="garmin-export__header">
         <strong>⌚ Envoyer sur ma montre</strong>
+        <span class="muted small">Workout Garmin structuré</span>
       </div>
       <button class="btn btn--garmin" id="garmin-send-btn" type="button">
-        Générer le workout Garmin (TCX)
+        Générer et envoyer (TCX)
       </button>
-      <p class="muted small" id="garmin-hint">
-        Télécharge le fichier TCX puis importe-le dans Garmin Connect (onglet
-        <em>Entraînements</em>). La montre le synchronisera à la prochaine connexion
-        et te guidera pendant la séance (bips aux transitions, allures cibles affichées).
+      <p class="muted small" id="garmin-hint">${hint}</p>
+      <p class="muted small" style="margin-top:0">
+        → Le fichier se télécharge, <strong>Garmin Connect s'ouvre</strong>, clique <strong>Importer</strong> puis sélectionne le fichier. Sync automatique sur la montre.
       </p>
     </div>
   `;
