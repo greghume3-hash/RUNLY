@@ -47,3 +47,46 @@ self.addEventListener("fetch", (event) => {
       )
   );
 });
+
+// ---------------------------------------------------------------------
+// Push notifications
+// ---------------------------------------------------------------------
+// Reçoit un événement push envoyé par le backend (via web-push) et affiche
+// une notification système, même si l'app est fermée.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { title: "Runly", body: event.data?.text?.() || "Nouvelle notification" };
+  }
+  const title = data.title || "Runly";
+  const options = {
+    body: data.body || "",
+    icon: "/icons/icon.svg",
+    badge: "/icons/icon.svg",
+    tag: data.tag || "runly-notification",
+    data: { url: data.url || "/" },
+    vibrate: [100, 50, 100],
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Clic sur une notif → ouvre l'app ou focus l'onglet existant
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
+});

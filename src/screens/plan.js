@@ -25,6 +25,17 @@ import {
 } from "../plan/gpx.js";
 import { sessionToTcxWorkout, sendToGarminWatch } from "../plan/tcx.js";
 import { computeAdjustment, applyAdjustmentToWeek } from "../plan/adaptation.js";
+import {
+  isPushSupported,
+  getPermission,
+  requestPermission,
+  subscribeToPush,
+  unsubscribeFromPush,
+  registerSubscription,
+  unregisterSubscription,
+  sendTestNotification,
+  buildScheduleFromPlan,
+} from "../push.js";
 
 const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_SHORT = { mon: "L", tue: "M", wed: "M", thu: "J", fri: "V", sat: "S", sun: "D" };
@@ -133,6 +144,9 @@ function renderHeader({ plan, paces }) {
         </p>
       </div>
       <div class="plan-header__actions">
+        <button class="icon-btn" id="notif-btn" type="button" aria-label="Notifications" title="Notifications">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
         <button class="icon-btn" id="history-btn" type="button" aria-label="Historique" title="Mon historique">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </button>
@@ -755,6 +769,62 @@ function attachListeners(root, ctx) {
   // Historique
   root.querySelector("#history-btn")?.addEventListener("click", () => {
     navigate("history");
+  });
+
+  // Notifications push
+  root.querySelector("#notif-btn")?.addEventListener("click", async () => {
+    if (!isPushSupported()) {
+      alert("Ton navigateur ne supporte pas les notifications push.");
+      return;
+    }
+    const perm = getPermission();
+    if (perm === "denied") {
+      alert(
+        "Les notifications ont été bloquées. Réactive-les dans les paramètres du navigateur."
+      );
+      return;
+    }
+
+    // Si déjà actives → bouton devient "désactiver" + "test"
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+
+    if (existing) {
+      const choice = prompt(
+        "Notifications actives.\n\nTape :\n- 'test' pour envoyer une notification test\n- 'off' pour désactiver\n- (rien) pour annuler",
+        ""
+      );
+      if (choice === "test") {
+        try {
+          await sendTestNotification(existing);
+          alert("Notif test envoyée ! Vérifie ton écran.");
+        } catch (e) {
+          alert("Erreur envoi : " + e.message);
+        }
+      } else if (choice === "off") {
+        await unregisterSubscription(existing);
+        await unsubscribeFromPush();
+        alert("Notifications désactivées.");
+      }
+      return;
+    }
+
+    // Activation
+    const granted = await requestPermission();
+    if (granted !== "granted") {
+      alert("Permission refusée — impossible d'activer les notifications.");
+      return;
+    }
+    try {
+      const sub = await subscribeToPush();
+      const schedule = buildScheduleFromPlan(ctx.plan, profile.firstName || "");
+      await registerSubscription(sub, schedule);
+      alert(
+        `✅ Notifications activées !\n\nTu recevras ${schedule.length} rappel(s) dans les 30 prochains jours.\n\nLe premier rappel matinal te sera envoyé à 7h-8h (heure locale) le jour de ta prochaine séance.`
+      );
+    } catch (e) {
+      alert("Erreur : " + e.message);
+    }
   });
 
   // Restart
