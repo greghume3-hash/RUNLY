@@ -18,7 +18,12 @@ import {
   extractRouteStats,
   estimateRouteDistance,
 } from "../plan/route.js";
-import { geojsonToGpx, shareGpx, downloadGpx } from "../plan/gpx.js";
+import {
+  geojsonToGpx,
+  shareGpx,
+  downloadGpx,
+  sendToStrava,
+} from "../plan/gpx.js";
 
 const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_SHORT = { mon: "L", tue: "M", wed: "M", thu: "J", fri: "V", sat: "S", sun: "D" };
@@ -595,14 +600,14 @@ function renderRouteBlock(session) {
         </button>
       </div>
       <div class="route-export" id="route-export" hidden>
-        <button class="btn btn--primary" id="download-gpx-btn" type="button">
-          📥 Télécharger GPX (Garmin, Strava…)
+        <button class="btn btn--strava" id="strava-btn" type="button">
+          🔴 Envoyer sur Strava
         </button>
-        <button class="btn btn--link" id="share-gpx-btn" type="button" hidden>
-          Partager
+        <button class="btn btn--outline" id="download-gpx-btn" type="button">
+          📥 Télécharger GPX (Garmin, Komoot…)
         </button>
-        <p class="muted small" style="margin:4px 0 0 0">
-          Importe le fichier dans Garmin Connect (Activités → Courses → Importer) ou Strava.
+        <p class="muted small" id="strava-hint" style="margin:4px 0 0 0">
+          Le GPX est téléchargé et Strava s'ouvre — glisse le fichier dans la fenêtre d'upload.
         </p>
       </div>
     </div>
@@ -861,9 +866,13 @@ function attachListeners(root, ctx) {
         newRouteBtn.hidden = false;
         const exportEl = root.querySelector("#route-export");
         if (exportEl) exportEl.hidden = false;
-        // Afficher le bouton "Partager" seulement si la Web Share API supporte les fichiers
-        const shareBtn = root.querySelector("#share-gpx-btn");
-        if (shareBtn && navigator.canShare) shareBtn.hidden = false;
+        // Ajuste le texte du hint selon la plateforme
+        const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+        const stravaHint = root.querySelector("#strava-hint");
+        if (stravaHint && isMobile && navigator.canShare) {
+          stravaHint.textContent =
+            "Choisis Strava dans le menu partage qui s'ouvre. L'app importera la route automatiquement.";
+        }
       } catch (err) {
         errorEl.hidden = false;
         const isLocalDev =
@@ -916,14 +925,20 @@ function attachListeners(root, ctx) {
       if (!gpx) return;
       downloadGpx(gpx, gpxFilename());
     });
-    root.querySelector("#share-gpx-btn")?.addEventListener("click", async () => {
+    root.querySelector("#strava-btn")?.addEventListener("click", async () => {
       const gpx = buildGpxString();
       if (!gpx) return;
       try {
-        await shareGpx(gpx, gpxFilename());
+        const result = await sendToStrava(gpx, gpxFilename());
+        const hint = root.querySelector("#strava-hint");
+        if (hint) {
+          hint.textContent =
+            result === "shared"
+              ? "✓ Partagé. Si tu as choisi Strava, la route est en cours d'import."
+              : "✓ GPX téléchargé. Strava s'ouvre — glisse le fichier dans la fenêtre.";
+        }
       } catch (e) {
-        // Annulation user ou erreur silencieuse
-        console.log("[Runly] partage annulé ou échoué:", e);
+        console.log("[Runly] envoi Strava échoué:", e);
       }
     });
 

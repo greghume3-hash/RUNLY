@@ -78,3 +78,40 @@ export async function shareGpx(gpxString, filename = "parcours.gpx") {
   downloadGpx(gpxString, filename);
   return false;
 }
+
+// "Envoyer sur Strava" — workflow optimisé :
+// - Mobile avec Strava installée → Web Share API, Strava apparaît dans le menu
+// - Desktop → télécharge le GPX + ouvre strava.com/upload/select dans un nouvel onglet
+// Retourne "shared" | "downloaded" | "opened-web"
+export async function sendToStrava(gpxString, filename = "parcours.gpx") {
+  // Détection grossière mobile (UA)
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const blob = new Blob([gpxString], { type: "application/gpx+xml" });
+  const file = new File([blob], filename, { type: "application/gpx+xml" });
+
+  // Cas 1 : partage natif (mobile avec Share API + support des fichiers)
+  if (
+    isMobile &&
+    navigator.canShare &&
+    navigator.canShare({ files: [file] })
+  ) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: filename,
+        text: "Parcours Runly — import dans Strava",
+      });
+      return "shared";
+    } catch (e) {
+      // l'user a annulé, on tombe en fallback
+    }
+  }
+
+  // Cas 2 : desktop ou pas de Share API → download + ouvre Strava upload
+  downloadGpx(gpxString, filename);
+  // Laisse le temps au téléchargement de démarrer avant d'ouvrir l'onglet
+  setTimeout(() => {
+    window.open("https://www.strava.com/upload/select", "_blank");
+  }, 300);
+  return "opened-web";
+}

@@ -197,6 +197,28 @@ body {
   align-self: flex-start;
 }
 
+.btn--strava {
+  background: #fc4c02;
+  color: #fff;
+  border: 1px solid #fc4c02;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--radius);
+  font-family: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.btn--strava:hover {
+  background: #e04500;
+}
+
 .btn--outline:hover {
   background: var(--color-surface);
   border-color: #cbd5e1;
