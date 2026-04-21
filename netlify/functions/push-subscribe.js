@@ -1,18 +1,5 @@
-// Enregistre une subscription push + les métadonnées nécessaires pour
-// savoir QUAND envoyer les notifications (timezone, planning séances).
-//
-// Stockage : Netlify Blobs (clé = endpoint hashé, valeur = subscription JSON).
-//
-// Body attendu :
-// {
-//   subscription: { endpoint, keys: { p256dh, auth } },
-//   timezone: "Europe/Paris",
-//   schedule: [
-//     { date: "2026-04-21", isMorning: true, body: "..." },
-//     { date: "2026-04-20", isEvening: true, body: "..." },
-//     ...
-//   ]
-// }
+// Enregistre une subscription push + les métadonnées pour les notifs.
+// Format Netlify Functions v2 (ESM default export) pour accès auto aux Blobs.
 
 import { getStore } from "@netlify/blobs";
 import { createHash } from "node:crypto";
@@ -21,19 +8,31 @@ function keyOf(endpoint) {
   return createHash("sha256").update(endpoint).digest("hex").slice(0, 24);
 }
 
-export async function handler(event) {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method not allowed" };
+export default async (req) => {
+  if (req.method !== "POST") {
+    return new Response("Method not allowed", { status: 405 });
+  }
 
   let payload;
   try {
-    payload = JSON.parse(event.body || "{}");
+    payload = await req.json();
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: "invalid_json" }) };
+    return new Response(JSON.stringify({ error: "invalid_json" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const { subscription, timezone, schedule } = payload;
-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-    return { statusCode: 400, body: JSON.stringify({ error: "invalid_subscription" }) };
+  if (
+    !subscription?.endpoint ||
+    !subscription?.keys?.p256dh ||
+    !subscription?.keys?.auth
+  ) {
+    return new Response(JSON.stringify({ error: "invalid_subscription" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const store = getStore("runly-push");
@@ -46,9 +45,8 @@ export async function handler(event) {
   };
   await store.setJSON(key, record);
 
-  return {
-    statusCode: 200,
+  return new Response(JSON.stringify({ ok: true, key }), {
+    status: 200,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ok: true, key }),
-  };
-}
+  });
+};

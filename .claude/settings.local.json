@@ -21,7 +21,8 @@
       "Bash(curl -s -X POST https://fluffy-marigold-b3c06e.netlify.app/api/route -H \"Content-Type: application/json\" -d '{\"lat\":45.7578,\"lng\":4.8320,\"distanceKm\":5,\"profile\":\"foot-walking\"}' -o /tmp/route-response.json -w \"HTTP %{http_code}\\\\nContent-Length: %{size_download} bytes\\\\n\")",
       "Bash(curl -sv -X POST https://fluffy-marigold-b3c06e.netlify.app/api/route -H \"Content-Type: application/json\" -d '{\"lat\":45.7578,\"lng\":4.8320,\"distanceKm\":5}')",
       "Bash(node test-api.mjs)",
-      "Bash(node scripts/generate-vapid.mjs)"
+      "Bash(node scripts/generate-vapid.mjs)",
+      "Bash(node test-push-endpoints.mjs)"
     ]
   }
 }

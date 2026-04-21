@@ -1,36 +1,39 @@
-// Envoie une notification test à une subscription donnée.
-// Utilisé par le bouton "Envoyer test" dans l'app.
+// Envoie une notification test à une subscription. Format v2.
 
 import webpush from "web-push";
 
-export async function handler(event) {
-  if (event.httpMethod !== "POST") return { statusCode: 405 };
+export default async (req) => {
+  if (req.method !== "POST") {
+    return new Response("Method not allowed", { status: 405 });
+  }
 
   const pub = process.env.VAPID_PUBLIC_KEY;
   const priv = process.env.VAPID_PRIVATE_KEY;
   if (!pub || !priv) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "missing_vapid_keys" }),
-    };
+    return new Response(JSON.stringify({ error: "missing_vapid_keys" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   let payload;
   try {
-    payload = JSON.parse(event.body || "{}");
+    payload = await req.json();
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: "invalid_json" }) };
+    return new Response(JSON.stringify({ error: "invalid_json" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
   const { subscription } = payload;
   if (!subscription?.endpoint) {
-    return { statusCode: 400, body: JSON.stringify({ error: "missing_subscription" }) };
+    return new Response(JSON.stringify({ error: "missing_subscription" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
-  webpush.setVapidDetails(
-    "mailto:contact@runly.local",
-    pub,
-    priv
-  );
+  webpush.setVapidDetails("mailto:contact@runly.local", pub, priv);
 
   const notifPayload = JSON.stringify({
     title: "Runly 🏃",
@@ -41,11 +44,18 @@ export async function handler(event) {
 
   try {
     await webpush.sendNotification(subscription, notifPayload);
-    return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
-    return {
-      statusCode: 502,
-      body: JSON.stringify({ error: "send_failed", message: String(err) }),
-    };
+    return new Response(
+      JSON.stringify({
+        error: "send_failed",
+        status: err?.statusCode,
+        message: String(err),
+      }),
+      { status: 502, headers: { "Content-Type": "application/json" } }
+    );
   }
-}
+};
