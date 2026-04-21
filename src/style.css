@@ -234,7 +234,86 @@ body {
 .garmin-export__header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+
+/* --- Adaptation banner (quand le plan s'adapte aux complétions) --- */
+.adaptation-banner {
+  padding: 12px 14px;
+  border-radius: 10px;
+  margin: 0 0 14px 0;
+  border: 1px solid transparent;
+}
+
+.adaptation-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.adaptation-banner p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.adaptation-banner--step_back {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #78350f;
+}
+
+.adaptation-banner--light_deload {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e3a8a;
+}
+
+.adaptation-banner--injury {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #7f1d1d;
+}
+
+/* --- Bloc saisie résultat test VMA --- */
+.vma-test-block {
+  margin: 16px 0;
+  padding: 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vma-test-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vma-test-block__input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vma-test-block__input input {
+  font-family: inherit;
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.vma-test-block__input .btn {
+  margin-left: auto;
+  flex: 1;
+  min-width: 180px;
 }
 
 .btn--outline:hover {

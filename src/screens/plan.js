@@ -24,6 +24,7 @@ import {
   downloadGpx,
 } from "../plan/gpx.js";
 import { sessionToTcxWorkout, sendToGarminWatch } from "../plan/tcx.js";
+import { computeAdjustment, applyAdjustmentToWeek } from "../plan/adaptation.js";
 
 const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_SHORT = { mon: "L", tue: "M", wed: "M", thu: "J", fri: "V", sat: "S", sun: "D" };
@@ -80,8 +81,19 @@ export function planScreen(root) {
   const paces = getPaces(profile);
   const plan = generatePlan({ profile, paces });
 
+  // Adaptation dynamique : pour chaque semaine, on regarde les complétions
+  // de la semaine précédente et on ajuste si besoin (séances passées, blessure).
+  // On n'adapte QUE la semaine courante + la suivante, pas tout le plan.
+  const currentIdx = currentWeekIdx;
+  for (let i = 1; i < plan.weeks.length; i++) {
+    const previousWeek = plan.weeks[i - 1];
+    const adjustment = computeAdjustment({ previousWeek, profile });
+    if (adjustment.type !== "none") {
+      applyAdjustmentToWeek(plan.weeks[i], adjustment);
+    }
+  }
+
   // Sauvegarde un résumé du plan dans localStorage pour persistance
-  // (on ne stocke pas le plan complet car regénérable à volonté)
   if (!profile.planGeneratedAt) {
     updateProfile({
       planGeneratedAt: new Date().toISOString(),
@@ -185,6 +197,13 @@ function renderWeekView({ plan }) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
+
+      ${week.adaptation && week.adaptation.type !== "none" ? `
+        <div class="adaptation-banner adaptation-banner--${week.adaptation.type}">
+          <strong>⚡ Plan adapté</strong>
+          <p>${escapeHtml(week.adaptation.reason)}</p>
+        </div>
+      ` : ""}
 
       <div class="week-summary">
         <div class="week-summary__item"><strong>${week.stats.sessionCount}</strong><span>séances</span></div>
@@ -379,6 +398,8 @@ function renderSessionModal({ plan }) {
         </header>
 
         <p class="intent">${escapeHtml(s.intent)}</p>
+
+        ${s.templateId === "test-vma-3000" ? renderVmaTestResultBlock() : ""}
 
         ${renderGarminExport(s)}
 
@@ -609,6 +630,36 @@ function renderRouteBlock(session) {
           GPX = juste le tracé du parcours (à importer dans Garmin Connect ou Strava).
         </p>
       </div>
+    </div>
+  `;
+}
+
+// Bloc "Saisir le résultat du test VMA 3000m".
+// Affiché uniquement dans la modale d'une séance test-vma-3000.
+// Au submit : calcule la nouvelle VMA et met à jour le profil — toutes les
+// allures des semaines suivantes sont recalculées automatiquement.
+function renderVmaTestResultBlock() {
+  const currentVma = profile.vma ?? null;
+  return `
+    <div class="vma-test-block">
+      <div class="vma-test-block__header">
+        <strong>📝 Saisir mon résultat</strong>
+        ${currentVma ? `<span class="muted small">VMA actuelle : ${currentVma} km/h</span>` : ""}
+      </div>
+      <p class="muted small">
+        Rentre le temps réalisé sur le 3000m — l'app recalculera ta VMA
+        et ajustera toutes les allures des semaines suivantes.
+      </p>
+      <div class="vma-test-block__input">
+        <input type="number" id="vma-test-min" min="8" max="20" placeholder="min" inputmode="numeric" style="width:70px" />
+        <span>min</span>
+        <input type="number" id="vma-test-sec" min="0" max="59" placeholder="sec" inputmode="numeric" style="width:70px" />
+        <span>s</span>
+        <button class="btn btn--primary" id="vma-test-submit" type="button">
+          Mettre à jour ma VMA
+        </button>
+      </div>
+      <p class="muted small" id="vma-test-result"></p>
     </div>
   `;
 }
@@ -978,6 +1029,35 @@ function attachListeners(root, ctx) {
       if (hint) {
         hint.innerHTML =
           "✓ Fichier TCX téléchargé. Sur Garmin Connect (onglet ouvert), clique <strong>Importer</strong> et sélectionne le fichier.";
+      }
+    });
+
+    // Saisie résultat test VMA → recalcul auto des allures
+    root.querySelector("#vma-test-submit")?.addEventListener("click", () => {
+      const minEl = root.querySelector("#vma-test-min");
+      const secEl = root.querySelector("#vma-test-sec");
+      const resultEl = root.querySelector("#vma-test-result");
+      const min = Number(minEl.value);
+      const sec = Number(secEl.value) || 0;
+      if (!min || min < 8 || min > 20) {
+        if (resultEl) {
+          resultEl.textContent = "⚠️ Temps invalide — un 3000m se court en 8 à 20 minutes.";
+          resultEl.style.color = "#b45309";
+        }
+        return;
+      }
+      const totalSec = min * 60 + sec;
+      // VMA (km/h) = distance_km / temps_h = 3 / (totalSec/3600) = 3 * 3600 / totalSec
+      const newVma = Math.round((3 * 3600) / totalSec * 10) / 10;
+      updateProfile({
+        vma: newVma,
+        paceFreshness: "recent",
+        paceReferenceDistance: 3,
+      });
+      if (resultEl) {
+        resultEl.innerHTML =
+          `✓ <strong>Nouvelle VMA : ${newVma} km/h</strong>. Les allures des semaines suivantes viennent d'être recalculées. Ferme la modale pour voir.`;
+        resultEl.style.color = "#166534";
       }
     });
 
