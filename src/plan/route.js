@@ -235,15 +235,16 @@ function averageFromString(s) {
 // scoré en combinant (écart distance + écart D+). On retourne :
 //   - le 1er parcours qui rentre dans les 2 tolérances, OU
 //   - celui avec le meilleur score sinon (flag `_approximate`).
+// Stratégie "recherche adaptative" :
+// - On commence avec un facteur initial 0.90 (ORS round_trip sur-estime d'environ 10-15 %).
+// - Après chaque essai, on RECALIBRE le facteur en fonction du vrai retour ORS.
+// - On accepte dès qu'on est dans la tolérance "bonne" (±5 %).
+// - En dernier recours (4e essai), on prend la tolérance "acceptable" (±10 %).
 const MAX_ATTEMPTS = 4;
-const ORS_DISTANCE_CORRECTION = 0.88; // demande 12 % de moins à ORS
+const INITIAL_CORRECTION = 0.90;
+const GOOD_TOLERANCE = 0.05;       // vise ±5 %
+const ACCEPTABLE_TOLERANCE = 0.10; // dernier recours
 
-// Tolérance en fraction de la distance cible, adaptée à la longueur.
-function toleranceFor(targetKm) {
-  if (targetKm < 6) return 0.10;   // courte : strict
-  if (targetKm < 15) return 0.13;  // moyenne : standard
-  return 0.15;                      // longue : tolérant
-}
 // Nb de waypoints ORS — moins = boucle plus serrée et distance plus fidèle
 function pointsFor(targetKm) {
   if (targetKm > 12) return 2;
@@ -259,11 +260,6 @@ export async function fetchRoute({ session, userProfile, seed }) {
   }
 
   const targetKm = estimateRouteDistance(session, userProfile);
-  const tolerance = toleranceFor(targetKm);
-  const minKm = targetKm * (1 - tolerance);
-  const maxKm = targetKm * (1 + tolerance);
-  // On demande moins que la cible à ORS pour compenser le biais round_trip
-  const orsRequestedKm = targetKm * ORS_DISTANCE_CORRECTION;
   const orsPoints = pointsFor(targetKm);
 
   const { preference, elevPerKmMin, elevPerKmMax } = getRouteConstraints(
@@ -277,12 +273,14 @@ export async function fetchRoute({ session, userProfile, seed }) {
 
   let bestGeojson = null;
   let bestScore = Infinity;
-  let bestHill = null; // côte trouvée dans le meilleur parcours
+  let bestHill = null;
   const attempts = [];
+  let correctionFactor = INITIAL_CORRECTION; // on ajuste à chaque tentative
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const attemptSeed =
       seed != null ? seed + attempt * 1000 : Math.floor(Math.random() * 1e6);
+    const requestedKm = targetKm * correctionFactor;
 
     const res = await fetch("/api/route", {
       method: "POST",
@@ -290,7 +288,7 @@ export async function fetchRoute({ session, userProfile, seed }) {
       body: JSON.stringify({
         lat: userProfile.locationLat,
         lng: userProfile.locationLng,
-        distanceKm: orsRequestedKm, // corrigé (-12 %) pour compenser le biais ORS
+        distanceKm: requestedKm,
         profile,
         preference,
         seed: attemptSeed,
@@ -318,7 +316,9 @@ export async function fetchRoute({ session, userProfile, seed }) {
     }
     const elevPerKm = actualKm > 0 ? totalAscent / actualKm : 0;
 
-    const distanceOk = actualKm >= minKm && actualKm <= maxKm;
+    const distGap = Math.abs(actualKm - targetKm) / targetKm;
+    const distanceGood = distGap <= GOOD_TOLERANCE;
+    const distanceAcceptable = distGap <= ACCEPTABLE_TOLERANCE;
     const elevOk = elevPerKm >= elevPerKmMin && elevPerKm <= elevPerKmMax;
 
     // Si c'est une séance de côtes, on cherche aussi UN bon segment montée
@@ -328,22 +328,28 @@ export async function fetchRoute({ session, userProfile, seed }) {
     }
     const hillOk = !needsHillSegment || hill !== null;
 
-    // Score combiné : plus c'est bas, meilleur c'est
-    const distGap = Math.abs(actualKm - targetKm) / targetKm;
     const elevGap =
       elevPerKm > elevPerKmMax
         ? (elevPerKm - elevPerKmMax) / Math.max(5, elevPerKmMax)
         : elevPerKm < elevPerKmMin
         ? (elevPerKmMin - elevPerKm) / Math.max(5, elevPerKmMin)
         : 0;
-    // Pour hills : pénalité forte si pas de côte trouvée
     const hillPenalty = needsHillSegment && !hill ? 5 : 0;
     const score = distGap + elevGap * 1.5 + hillPenalty;
 
-    attempts.push({ seed: attemptSeed, actualKm, elevPerKm, hasHill: !!hill, score });
+    attempts.push({
+      seed: attemptSeed,
+      requestedKm: Math.round(requestedKm * 10) / 10,
+      actualKm,
+      correctionFactor: Math.round(correctionFactor * 100) / 100,
+      distGap: Math.round(distGap * 1000) / 10, // en %
+      elevPerKm,
+      hasHill: !!hill,
+      score,
+    });
 
-    // Tous les critères sont respectés → on s'arrête
-    if (distanceOk && elevOk && hillOk) {
+    // Tolérance "bonne" (±5 %) atteinte + contraintes secondaires OK → on s'arrête
+    if (distanceGood && elevOk && hillOk) {
       return {
         ...geojson,
         _targetKm: targetKm,
@@ -352,14 +358,25 @@ export async function fetchRoute({ session, userProfile, seed }) {
         _elevTarget: `${Math.round(elevPerKmMin)}-${Math.round(elevPerKmMax)} m/km`,
         _approximate: false,
         _attempts: attempts.length,
-        _hillSegment: hill, // { startIdx, endIdx, lengthM, gradient, ascent } ou null
+        _attemptsDetail: attempts,
+        _hillSegment: hill,
       };
     }
 
+    // On garde le meilleur candidat
     if (score < bestScore) {
       bestScore = score;
       bestGeojson = geojson;
       bestHill = hill;
+    }
+
+    // Recalibrage adaptatif : le NOUVEAU facteur compense exactement l'écart observé.
+    // Ex: demandé 10 km, reçu 12 km, cible 10 km → nouveau facteur = 0.9 × (10/12) = 0.75
+    if (actualKm > 0 && attempt < MAX_ATTEMPTS - 1) {
+      correctionFactor = Math.max(
+        0.5,
+        Math.min(1.3, correctionFactor * (targetKm / actualKm))
+      );
     }
   }
 
@@ -372,14 +389,18 @@ export async function fetchRoute({ session, userProfile, seed }) {
     const d = (bestCoords[i][2] ?? 0) - (bestCoords[i - 1][2] ?? 0);
     if (d > 0) bestAscent += d;
   }
+  // On flag "approximate" seulement si l'écart dépasse la tolérance acceptable.
+  const bestDistGap = Math.abs(bestDistance / 1000 - targetKm) / targetKm;
+  const approximate = bestDistGap > ACCEPTABLE_TOLERANCE;
   return {
     ...bestGeojson,
     _targetKm: targetKm,
     _actualKm: bestDistance / 1000,
     _elevPerKm: Math.round(bestAscent / (bestDistance / 1000)),
     _elevTarget: `${Math.round(elevPerKmMin)}-${Math.round(elevPerKmMax)} m/km`,
-    _approximate: true,
+    _approximate: approximate,
     _attempts: attempts.length,
+    _attemptsDetail: attempts,
     _hillSegment: bestHill,
   };
 }
